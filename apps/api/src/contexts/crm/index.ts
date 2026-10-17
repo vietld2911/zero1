@@ -22,7 +22,7 @@ import { createApprovalsService } from './modules/enrollments/approvals.service.
 import { registerEnrollmentRoutes } from './modules/enrollments/enrollments.routes.js';
 import { createReportsService } from './modules/reports/reports.service.js';
 import { registerReportRoutes } from './modules/reports/reports.routes.js';
-import { followUpReminderJob } from './modules/leads/follow-up-job.js';
+import { followUpReminderJob, staleLeadsJob } from './modules/leads/follow-up-job.js';
 import { createParentPortal, registerParentPortalRoutes } from './modules/parents/parent-portal.js';
 import type { Job } from '../../platform/jobs.js';
 
@@ -50,7 +50,7 @@ export function createCrmContext({ db, core, storage }: { db: CrmDb; core: CoreC
       ...enrollments.subscriptions(),
     ] satisfies Subscription[],
     /** Việc định kỳ của CRM. */
-    jobs: [followUpReminderJob(db, core.notifications)] satisfies Job[],
+    jobs: [followUpReminderJob(db, core.notifications), staleLeadsJob(db, leads, core.notifications)] satisfies Job[],
     registerRoutes(route: RouteRegistrar) {
       registerCatalogRoutes(route, levelCatalog);
       registerPackageRoutes(route, packages);

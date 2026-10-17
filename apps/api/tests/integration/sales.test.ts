@@ -68,7 +68,7 @@ describe('khách hàng tiềm năng', () => {
   it('SALE tạo lead → tự phụ trách, SĐT được chuẩn hoá', async () => {
     const res = await t.as(sale.token).post('/api/v1/crm/leads', lead());
     expect(res.status).toBe(201);
-    expect(res.body.data).toMatchObject({ parentPhone: '0912345678', ownerId: sale.id, status: 'NEW', branchId: b1 });
+    expect(res.body.data).toMatchObject({ parentPhone: '0912345678', ownerId: sale.id, status: 'S1A', branchId: b1 });
     leadId = res.body.data.id;
   });
 
@@ -96,20 +96,20 @@ describe('khách hàng tiềm năng', () => {
     expect((await t.as(teacher.token).get('/api/v1/crm/leads')).status).toBe(403);
   });
 
-  it('ghi cuộc gọi → đang liên hệ, hẹn gọi lại', async () => {
+  it('ghi cuộc gọi → S2A, hẹn gọi lại', async () => {
     const at = new Date(Date.now() + 3_600_000).toISOString();
-    const res = await t.as(sale.token).post(`/api/v1/crm/leads/${leadId}/calls`, { outcome: 'TALKED', note: 'Quan tâm robotics', nextFollowUpAt: at });
-    expect(res.body.data).toMatchObject({ status: 'CONTACTING' });
-    expect(res.body.data.calls[0]).toMatchObject({ outcome: 'TALKED', userName: 'sale' });
+    const res = await t.as(sale.token).post(`/api/v1/crm/leads/${leadId}/calls`, { outcome: 'TALKED', note: 'Quan tâm robotics', status: 'S2A', nextFollowUpAt: at });
+    expect(res.body.data).toMatchObject({ status: 'S2A' });
+    expect(res.body.data.calls[0]).toMatchObject({ outcome: 'TALKED', userName: 'sale', statusAfter: 'S2A' });
     expect((await t.as(sale.token).get('/api/v1/crm/leads/follow-ups')).body.data.map((l: { id: string }) => l.id)).toContain(leadId);
   });
 
-  it('lịch trải nghiệm: đặt → SCHEDULED; đến → ATTENDED; không đổi lại được', async () => {
+  it('lịch trải nghiệm: đặt → S3A; đến → S4A; không đổi lại được', async () => {
     const appt = await t.as(sale.token).post(`/api/v1/crm/leads/${leadId}/appointments`, { type: 'EXPERIENCE', scheduledAt: new Date(Date.now() + 86_400_000).toISOString() });
     expect(appt.status).toBe(201);
-    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data.status).toBe('SCHEDULED');
+    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data.status).toBe('S3A');
     await t.as(sale.token).post(`/api/v1/crm/appointments/${appt.body.data.id}/status`, { status: 'ATTENDED', resultNote: 'Bé thích' });
-    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data.status).toBe('ATTENDED');
+    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data.status).toBe('S4A');
     expect((await t.as(sale.token).post(`/api/v1/crm/appointments/${appt.body.data.id}/status`, { status: 'CANCELLED' })).body.code).toBe('INVALID_STATE_TRANSITION');
   });
 
@@ -154,10 +154,12 @@ describe('khách hàng tiềm năng', () => {
     expect(res.body.data.skipped.map((s: { row: number }) => s.row)).toEqual([3, 4, 5]);
   });
 
-  it('LOST cần lý do', async () => {
+  it('dừng (S1C) cần lý do; PATCH không còn đổi trạng thái', async () => {
     const id = (await t.as(sale.token).post('/api/v1/crm/leads', lead({ parentPhone: '0900000001', childName: 'Bé Mất' }))).body.data.id;
-    expect((await t.as(sale.token).patch(`/api/v1/crm/leads/${id}`, { status: 'LOST' })).status).toBe(400);
-    expect((await t.as(sale.token).patch(`/api/v1/crm/leads/${id}`, { status: 'LOST', lostReason: 'Chọn trung tâm khác' })).body.data.status).toBe('LOST');
+    expect((await t.as(sale.token).patch(`/api/v1/crm/leads/${id}`, { status: 'S1C' })).status).toBe(400);
+    expect((await t.as(sale.token).post(`/api/v1/crm/leads/${id}/status`, { status: 'S1C', note: 'Không có nhu cầu' })).status).toBe(400);
+    const res = await t.as(sale.token).post(`/api/v1/crm/leads/${id}/status`, { status: 'S1C', note: 'Không có nhu cầu', lostReason: 'Chọn trung tâm khác' });
+    expect(res.body.data).toMatchObject({ status: 'S1C', lostReason: 'Chọn trung tâm khác' });
   });
 });
 
@@ -217,7 +219,7 @@ describe('chuyển đổi, thu tiền, duyệt', () => {
     });
     // 300k giảm thêm + 1 tháng vượt mức × (12tr / 6 tháng) = 2,3tr ≤ hạn mức 5tr của chi nhánh → CM
     expect(e.approval).toMatchObject({ status: 'PENDING', approverRole: 'CM', value: 2_300_000 });
-    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data).toMatchObject({ status: 'CONVERTED', convertedStudentId: studentId });
+    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data).toMatchObject({ status: 'S5A', convertedStudentId: studentId });
   });
 
   it('quà "khi đóng tiền" chưa giao được trước khoản thu đầu tiên', async () => {
@@ -244,6 +246,7 @@ describe('chuyển đổi, thu tiền, duyệt', () => {
     expect(e).toMatchObject({ status: 'ACTIVE', amountPaid: 5_000_000, paymentState: 'PARTIAL' });
     expect((await t.as(sale.token).get(`/api/v1/crm/students/${studentId}`)).body.data.status).toBe('ACTIVE');
     expect(await outboxTypes(enrollmentId)).toContain('crm.enrollment.activated');
+    expect((await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data.status).toBe('S5B'); // khoản thu đầu tiên → S5B
   });
 
   it('CS ghi khoản thu → xác nhận ngay; quà được giao, trừ kho', async () => {

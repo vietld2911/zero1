@@ -326,7 +326,11 @@ async function seedAll(admin: Actor, staffOnly: boolean) {
     daysAgo: number;
   }) {
     const { lead, c } = await newLead(opts.sale, opts.subjectId, opts.daysAgo + 5);
-    await post(opts.sale, `/crm/leads/${lead.id}/calls`, { outcome: 'TALKED', note: pick(['Phụ huynh quan tâm, hẹn qua trung tâm', 'Đã tư vấn lộ trình, gửi học phí qua Zalo', 'Bé thích lắp ráp, phụ huynh muốn học cuối tuần']) });
+    await post(opts.sale, `/crm/leads/${lead.id}/calls`, {
+      outcome: 'TALKED',
+      note: pick(['Phụ huynh quan tâm, hẹn qua trung tâm', 'Đã tư vấn lộ trình, gửi học phí qua Zalo', 'Bé thích lắp ráp, phụ huynh muốn học cuối tuần']),
+      status: 'S2A',
+    });
     const conv = (
       await post(
         opts.sale,
@@ -347,7 +351,8 @@ async function seedAll(admin: Actor, staffOnly: boolean) {
       )
     ).data as { studentId: string; enrollmentId: string };
     const e = (await get(opts.cs, `/crm/enrollments/${conv.enrollmentId}`)).data;
-    const paidAt = vnAt(-opts.daysAgo, '10:30');
+    // 10:30 của ngày thu; chạy trước 10:30 hôm nay thì lấy giờ hiện tại (API không nhận ngày thu ở tương lai).
+    const paidAt = new Date(Math.min(Date.parse(vnAt(-opts.daysAgo, '10:30')), Date.now() - 60_000)).toISOString();
     if (opts.pay === 'FULL' || opts.pay === 'PARTIAL') {
       const amount = opts.pay === 'FULL' ? e.amountDue : Math.round(e.amountDue / 2 / 100_000) * 100_000;
       await post(opts.cs, `/crm/enrollments/${conv.enrollmentId}/payments`, { amount, method: pick(['TRANSFER', 'TRANSFER', 'CASH', 'CARD']), paidAt }, idem());
@@ -405,6 +410,9 @@ async function seedAll(admin: Actor, staffOnly: boolean) {
   await enrol({ sale: saleNam, cs: csCg, cm: cmCg, subjectId: rob.id, packageId: rob3, levelId: level(rob, 'ROB1'), startDate: vnDate(3), pay: 'PENDING', daysAgo: 0 });
   await enrol({ sale: saleLinh, cs: csCg, cm: cmCg, subjectId: rob.id, packageId: rob6, levelId: level(rob, 'ROB1'), startDate: vnDate(5), pay: 'PARTIAL', extraDiscount: 800_000, promotionId: promoSibling, daysAgo: 1 });
   await enrol({ sale: saleDuc, cs: csLb, cm: cmLb, subjectId: rob.id, packageId: rob6, levelId: level(rob, 'ROB1'), startDate: vnDate(5), pay: 'NONE', extraDiscount: 3_000_000, daysAgo: 0 });
+  // Đăng ký bị huỷ → lead về S5A, đánh dấu "đăng ký đã huỷ" chờ sale chọn lại trạng thái
+  const cancelled = await enrol({ sale: saleNam, cs: csCg, cm: cmCg, subjectId: scr.id, packageId: scr3, levelId: level(scr, 'SCR1'), startDate: vnDate(4), pay: 'NONE', daysAgo: 2 });
+  await post(cmCg, `/crm/enrollments/${cancelled.enrollmentId}/cancel`, { reason: 'Phụ huynh đổi lịch công tác, xin huỷ' });
   await drain();
   log('đăng ký + thu tiền (học viên đã sang LMS)');
 
@@ -492,35 +500,85 @@ async function seedAll(admin: Actor, staffOnly: boolean) {
     [slCg, cg],
     [saleDuc, lb],
   ];
+  const LOST_REASONS = ['Chọn trung tâm gần nhà hơn', 'Học phí cao so với dự kiến', 'Lịch học không phù hợp'];
+  /** Thời điểm hẹn ở tương lai — API không nhận lịch quá khứ. */
+  const later = () => vnAt(1 + Math.floor(rand() * 5), '10:00');
+  const book = async (sale: Actor, leadId: string, scheduledAt: string) =>
+    (await post(sale, `/crm/leads/${leadId}/appointments`, { type: 'EXPERIENCE', scheduledAt, note: 'Trải nghiệm lắp robot 45 phút' })).data as { id: string };
+  const attended = async (sale: Actor, leadId: string) => {
+    const appt = await book(sale, leadId, vnAt(-2, '17:30'));
+    await post(sale, `/crm/appointments/${appt.id}/status`, { status: 'ATTENDED', resultNote: 'Bé rất hào hứng, phụ huynh hỏi lịch lớp tối' });
+  };
+  // 14 kịch bản × 2 = đủ S1A … S4C (S5A / S5B đến từ các đăng ký ở trên)
   for (let i = 0; i < 28; i++) {
     const [sale] = pipeline[i % pipeline.length]!;
     const subject = chance(0.6) ? rob.id : scr.id;
     const { lead } = await newLead(sale, subject, Math.floor(rand() * 20));
-    const stage = i % 7;
-    if (stage === 0) continue; // NEW
-    const due = chance(0.5);
-    await post(sale, `/crm/leads/${lead.id}/calls`, {
-      outcome: pick(['TALKED', 'NO_ANSWER', 'CALL_BACK', 'BUSY']),
-      note: pick(['Phụ huynh hẹn gọi lại sau giờ làm', 'Đang cân nhắc học phí', 'Muốn cho bé học thử trước', 'Chưa nghe máy']),
-      nextFollowUpAt: vnAt(1 + Math.floor(rand() * 5), '10:00'),
-    });
-    // Một nửa đến hạn gọi lại (đã quá / hôm nay). API không nhận lịch quá khứ nên lùi thẳng trong DB.
-    if (due) await crmDb.update(leads).set({ nextFollowUpAt: new Date(vnAt(-Math.floor(rand() * 3), '09:00')) }).where(eq(leads.id, lead.id));
-    if (stage === 1) continue; // CONTACTING
-    if (stage === 2) {
-      await post(sale, `/crm/leads/${lead.id}/appointments`, { type: 'EXPERIENCE', scheduledAt: vnAt(1 + (i % 5), '17:30'), note: 'Trải nghiệm lắp robot 45 phút' });
-    } else if (stage === 3 && robSessions.length && sale !== saleDuc) {
-      const s = robSessions[i % Math.min(3, robSessions.length)]!;
-      await post(sale, `/crm/leads/${lead.id}/appointments`, { type: 'TRIAL', scheduledAt: s.startsAt, lmsSessionId: s.id });
-    } else if (stage === 4) {
-      const appt = (await post(sale, `/crm/leads/${lead.id}/appointments`, { type: 'EXPERIENCE', scheduledAt: vnAt(-2, '17:30') })).data;
-      await post(sale, `/crm/appointments/${appt.id}/status`, { status: 'ATTENDED', resultNote: 'Bé rất hào hứng, phụ huynh hỏi lịch lớp tối' });
-    } else if (stage === 5) {
-      const appt = (await post(sale, `/crm/leads/${lead.id}/appointments`, { type: 'EXPERIENCE', scheduledAt: vnAt(-3, '17:30') })).data;
-      await post(sale, `/crm/appointments/${appt.id}/status`, { status: 'NO_SHOW' });
-    } else {
-      await patch(sale, `/crm/leads/${lead.id}`, { status: 'LOST', lostReason: pick(['Chọn trung tâm gần nhà hơn', 'Học phí cao so với dự kiến', 'Lịch học không phù hợp']) });
+    const id = lead.id as string;
+    const talked = (status: string, extra: Body = {}) =>
+      post(sale, `/crm/leads/${id}/calls`, { outcome: 'TALKED', note: pick(['Phụ huynh quan tâm, muốn cho bé học thử', 'Đã tư vấn lộ trình, gửi học phí qua Zalo']), status, nextFollowUpAt: later(), ...extra });
+    switch (i % 14) {
+      case 0: // S1A — chưa gọi
+        break;
+      case 1: // S1B
+        await post(sale, `/crm/leads/${id}/calls`, { outcome: pick(['NO_ANSWER', 'BUSY']), note: 'Chưa nghe máy', status: 'S1B', nextFollowUpAt: later() });
+        break;
+      case 2: // S1B quá hạn khai thác (lần gọi đầu > 120 ngày) — lùi thẳng trong DB
+        await post(sale, `/crm/leads/${id}/calls`, { outcome: 'CALL_BACK', note: 'Phụ huynh bận, hẹn gọi lại sau', status: 'S1B', nextFollowUpAt: later() });
+        await crmDb
+          .update(leads)
+          .set({ firstCalledAt: new Date(Date.now() - (130 + Math.floor(rand() * 30)) * DAY) })
+          .where(eq(leads.id, id));
+        createdLeads[createdLeads.length - 1]!.createdDaysAgo = 160;
+        break;
+      case 3: // S1C — sai số
+        await post(sale, `/crm/leads/${id}/calls`, { outcome: 'WRONG_NUMBER', note: 'Số không đúng người', status: 'S1C', lostReason: 'Sai số điện thoại' });
+        break;
+      case 4: // S2A
+        await talked('S2A');
+        break;
+      case 5: // S2B
+        await talked('S2B', { note: 'Đang cân nhắc học phí, hỏi ý bố' });
+        break;
+      case 6: // S2C
+        await talked('S2C', { lostReason: pick(LOST_REASONS), nextFollowUpAt: null });
+        break;
+      case 7: // S3A
+        await talked('S2A');
+        await book(sale, id, vnAt(1 + (i % 5), '17:30'));
+        break;
+      case 8: // S3B — học thử trong buổi LMS (hoặc trải nghiệm), phụ huynh đã xác nhận
+        if (robSessions.length && sale !== saleDuc) {
+          const s = robSessions[i % Math.min(3, robSessions.length)]!;
+          const appt = (await post(sale, `/crm/leads/${id}/appointments`, { type: 'TRIAL', scheduledAt: s.startsAt, lmsSessionId: s.id })).data;
+          await post(sale, `/crm/appointments/${appt.id}/status`, { status: 'CONFIRMED' });
+        } else {
+          await post(sale, `/crm/appointments/${(await book(sale, id, vnAt(2, '17:30'))).id}/status`, { status: 'CONFIRMED' });
+        }
+        break;
+      case 9: {
+        // S3C — không đến
+        const appt = await book(sale, id, vnAt(-3, '17:30'));
+        await post(sale, `/crm/appointments/${appt.id}/status`, { status: 'NO_SHOW' });
+        break;
+      }
+      case 10: // S4A
+        await attended(sale, id);
+        break;
+      case 11: // S4B — hẹn ngày đóng phí
+        await attended(sale, id);
+        await post(sale, `/crm/leads/${id}/status`, { status: 'S4B', note: 'Phụ huynh hẹn đóng phí cuối tuần', nextFollowUpAt: vnAt(3, '09:00') });
+        break;
+      case 12: // S4C — từ chối sau trial
+        await attended(sale, id);
+        await post(sale, `/crm/leads/${id}/status`, { status: 'S4C', note: 'Phụ huynh báo không đăng ký', lostReason: pick(LOST_REASONS) });
+        break;
+      case 13: // S1 lên thẳng S3 (đặt lịch ngay trong cuộc gọi đầu)
+        await book(sale, id, vnAt(2, '18:00'));
+        break;
     }
+    // Một số lead đang mở đến hạn gọi lại (đã quá / hôm nay). API không nhận lịch quá khứ nên lùi thẳng trong DB.
+    if ([1, 4, 5].includes(i % 14) && chance(0.6)) await crmDb.update(leads).set({ nextFollowUpAt: new Date(vnAt(-Math.floor(rand() * 3), '09:00')) }).where(eq(leads.id, id));
   }
   await drain();
   log('28 lead ở các trạng thái + lịch hẹn');

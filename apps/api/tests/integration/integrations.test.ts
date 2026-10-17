@@ -317,9 +317,9 @@ describe('chống gửi trùng & kiểm tra dữ liệu', () => {
 
   it('hẹn gọi lại vào thời điểm đã qua → 400', async () => {
     const id = (await t.as(sale.token).post('/api/v1/crm/leads', lead())).body.data.id;
-    const past = await t.as(sale.token).post(`/api/v1/crm/leads/${id}/calls`, { outcome: 'CALL_BACK', nextFollowUpAt: '2020-01-01T09:00:00+07:00' });
+    const past = await t.as(sale.token).post(`/api/v1/crm/leads/${id}/calls`, { outcome: 'CALL_BACK', note: 'Hẹn gọi lại', status: 'S1B', nextFollowUpAt: '2020-01-01T09:00:00+07:00' });
     expect(past.status).toBe(400);
-    const future = await t.as(sale.token).post(`/api/v1/crm/leads/${id}/calls`, { outcome: 'CALL_BACK', nextFollowUpAt: new Date(Date.now() + 86_400_000).toISOString() });
+    const future = await t.as(sale.token).post(`/api/v1/crm/leads/${id}/calls`, { outcome: 'CALL_BACK', note: 'Hẹn gọi lại', status: 'S1B', nextFollowUpAt: new Date(Date.now() + 86_400_000).toISOString() });
     expect(future.status).toBe(201);
   });
 });

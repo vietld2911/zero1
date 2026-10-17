@@ -1,4 +1,4 @@
-import { and, asc, between, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, between, eq, inArray } from 'drizzle-orm';
 import { newId } from '../../../../platform/ids.js';
 import { Errors } from '../../../../platform/http/errors.js';
 import { appendEvent } from '../../../../platform/events/outbox.js';
@@ -12,7 +12,8 @@ import type { CrmDb, CrmExecutor } from '../../db/types.js';
 import type { APPOINTMENT_STATUSES } from '../../db/schema.js';
 import { leadAppointments, leads, outboxEvents, processedEvents } from '../../db/schema.js';
 import type { NotificationSender } from '../../../core/contract/index.js';
-import { leadVisibility, OPEN_STATUSES, type LeadsService } from './leads.service.js';
+import { leadVisibility, transition, type LeadsService } from './leads.service.js';
+import { isOpen, isStopped, stageOf, type LeadStage, type LeadStatus } from './stages.js';
 
 const eventTables = { outboxEvents, processedEvents };
 type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
@@ -27,19 +28,27 @@ const TRANSITIONS: Record<AppointmentStatus, AppointmentStatus[]> = {
 };
 const ACTIVE: AppointmentStatus[] = ['SCHEDULED', 'CONFIRMED'];
 
-/**
- * Trạng thái lead đi theo lịch hẹn: có lịch đang chờ → SCHEDULED; lịch gần nhất đã đến → ATTENDED;
- * vắng → NO_SHOW; huỷ hết → CONTACTING. Lead đã chốt / mất thì giữ nguyên.
- */
-async function syncLeadStatus(tx: CrmExecutor, leadId: string) {
-  const [lead] = await tx.select().from(leads).where(eq(leads.id, leadId)).for('update');
-  if (!lead || !OPEN_STATUSES.includes(lead.status)) return;
-  const appts = await tx.select().from(leadAppointments).where(eq(leadAppointments.leadId, leadId)).orderBy(asc(leadAppointments.scheduledAt));
-  const pending = appts.some((a) => ACTIVE.includes(a.status));
-  const lastDone = [...appts].reverse().find((a) => a.status === 'ATTENDED' || a.status === 'NO_SHOW');
-  const next = pending ? 'SCHEDULED' : lastDone ? (lastDone.status as 'ATTENDED' | 'NO_SHOW') : 'CONTACTING';
-  if (next !== lead.status) await tx.update(leads).set({ status: next, version: sql`${leads.version} + 1` }).where(eq(leads.id, leadId));
+type AppointmentEvent = 'BOOKED' | 'RESCHEDULED' | 'CONFIRMED' | 'ATTENDED' | 'NO_SHOW';
+
+/** Trạng thái lead theo lịch hẹn — không bao giờ tự lùi bước (docs/gd7-lead-stages.md §3). Huỷ lịch → giữ nguyên. */
+const LEAD_RULES: Record<AppointmentEvent, { when: (stage: LeadStage) => boolean; to: LeadStatus; note: string }> = {
+  BOOKED: { when: (s) => s <= 3, to: 'S3A', note: 'Đặt lịch' },
+  RESCHEDULED: { when: (s) => s === 3, to: 'S3A', note: 'Đổi giờ lịch' },
+  CONFIRMED: { when: (s) => s === 3, to: 'S3B', note: 'Phụ huynh xác nhận lịch' },
+  NO_SHOW: { when: (s) => s === 3, to: 'S3C', note: 'Không đến' },
+  ATTENDED: { when: (s) => s <= 3, to: 'S4A', note: 'Đã đến' },
+};
+const TYPE_LABEL = { EXPERIENCE: 'trải nghiệm', TRIAL: 'học thử' } as const;
+
+async function syncLeadStatus(tx: CrmExecutor, appt: Pick<AppointmentRow, 'leadId' | 'type'>, event: AppointmentEvent, actorId: string | null, extraNote?: string | null) {
+  const [lead] = await tx.select().from(leads).where(eq(leads.id, appt.leadId)).for('update');
+  const rule = LEAD_RULES[event];
+  if (!lead || isStopped(lead.status) || !rule.when(stageOf(lead.status))) return;
+  const note = `${rule.note} ${TYPE_LABEL[appt.type]}${extraNote ? ` · ${extraNote}` : ''}`;
+  await transition(tx, lead, rule.to, { source: 'APPOINTMENT', note: note.slice(0, 1000), actorId });
 }
+
+const EVENT_OF: Partial<Record<AppointmentStatus, AppointmentEvent>> = { CONFIRMED: 'CONFIRMED', ATTENDED: 'ATTENDED', NO_SHOW: 'NO_SHOW' };
 
 export function createAppointmentsService(db: CrmDb, leadsService: LeadsService, notifications: NotificationSender) {
   async function getVisible(actor: Principal, id: string, exec: CrmExecutor = db) {
@@ -65,7 +74,7 @@ export function createAppointmentsService(db: CrmDb, leadsService: LeadsService,
       const id = newId();
       await db.transaction(async (tx) => {
         const lead = await leadsService.getVisible(actor, leadId, tx, true);
-        if (!OPEN_STATUSES.includes(lead.status)) throw Errors.conflict('LEAD_CLOSED', 'Lead đã chốt hoặc đã mất');
+        if (!isOpen(lead.status)) throw Errors.conflict('LEAD_CLOSED', 'Lead đã dừng hoặc đã đăng ký');
         await tx.insert(leadAppointments).values({
           id,
           leadId,
@@ -86,7 +95,7 @@ export function createAppointmentsService(db: CrmDb, leadsService: LeadsService,
           };
           await appendEvent(tx, eventTables, { type: CRM_EVENTS.trialBooked, aggregateId: id, branchId: lead.branchId, actorId: actor.userId, data });
         }
-        await syncLeadStatus(tx, leadId);
+        await syncLeadStatus(tx, { leadId, type: input.type }, 'BOOKED', actor.userId);
       });
       return id;
     },
@@ -99,7 +108,8 @@ export function createAppointmentsService(db: CrmDb, leadsService: LeadsService,
         }
         await tx.update(leadAppointments).set({ status, resultNote: resultNote ?? appt.resultNote }).where(eq(leadAppointments.id, id));
         if (status === 'CANCELLED') await cancelTrialEvent(tx, appt, actor.userId);
-        await syncLeadStatus(tx, appt.leadId);
+        const event = EVENT_OF[status];
+        if (event) await syncLeadStatus(tx, appt, event, actor.userId, resultNote);
       });
     },
 
@@ -113,6 +123,7 @@ export function createAppointmentsService(db: CrmDb, leadsService: LeadsService,
           .update(leadAppointments)
           .set({ scheduledAt: input.scheduledAt, status: 'SCHEDULED', ...(input.note !== undefined ? { note: input.note } : {}) })
           .where(eq(leadAppointments.id, id));
+        await syncLeadStatus(tx, appt, 'RESCHEDULED', actor.userId);
       });
     },
 
@@ -162,7 +173,8 @@ export function createAppointmentsService(db: CrmDb, leadsService: LeadsService,
             const [appt] = await tx.select().from(leadAppointments).where(eq(leadAppointments.id, appointmentId)).for('update');
             if (!appt || !TRANSITIONS[appt.status].includes(status)) return; // đã xử lý tay / đã huỷ
             await tx.update(leadAppointments).set({ status, resultNote: note ?? appt.resultNote }).where(eq(leadAppointments.id, appointmentId));
-            await syncLeadStatus(tx, appt.leadId);
+            const change = EVENT_OF[status];
+            if (change) await syncLeadStatus(tx, appt, change, event.actorId, note);
             const [lead] = await tx.select({ ownerId: leads.ownerId, childName: leads.childName }).from(leads).where(eq(leads.id, appt.leadId));
             if (lead) owner.current = { ...lead, leadId: appt.leadId };
           });

@@ -5480,7 +5480,7 @@ export interface paths {
         };
         /**
          * Danh sách khách hàng tiềm năng
-         * @description SALE thấy lead của mình, SL thấy của đội, CM/CS/AM thấy theo chi nhánh. `ownerId=none` → chưa phân công.
+         * @description SALE thấy lead của mình, SL thấy của đội, CM/CS/AM thấy theo chi nhánh. `ownerId=none` → chưa phân công. `sort` nhận thêm `statusChangedAt`, `firstCalledAt`.
          *
          *     **Quyền:** `crm.leads.read`
          */
@@ -5500,6 +5500,12 @@ export interface paths {
                     ownerId?: string;
                     /** @description Chỉ lead đến hạn gọi lại */
                     followUpDue?: boolean;
+                    /** @description Bước 1–5, nhiều giá trị cách nhau dấu phẩy */
+                    stage?: string;
+                    /** @description true = chỉ lead đã dừng (S1C, S2C, S4C); false = bỏ lead đã dừng */
+                    stopped?: boolean;
+                    /** @description Chỉ lead S1B quá hạn khai thác */
+                    stale?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -5681,13 +5687,20 @@ export interface paths {
                     content: {
                         "application/json": {
                             data: {
-                                NEW?: number;
-                                CONTACTING?: number;
-                                SCHEDULED?: number;
-                                ATTENDED?: number;
-                                NO_SHOW?: number;
-                                CONVERTED?: number;
-                                LOST?: number;
+                                S1A?: number;
+                                S1B?: number;
+                                S1C?: number;
+                                S2A?: number;
+                                S2B?: number;
+                                S2C?: number;
+                                S3A?: number;
+                                S3B?: number;
+                                S3C?: number;
+                                S4A?: number;
+                                S4B?: number;
+                                S4C?: number;
+                                S5A?: number;
+                                S5B?: number;
                             };
                         };
                     };
@@ -5775,7 +5788,7 @@ export interface paths {
                                     id: string | null;
                                     childName: string;
                                     /** @enum {string} */
-                                    status: "NEW" | "CONTACTING" | "SCHEDULED" | "ATTENDED" | "NO_SHOW" | "CONVERTED" | "LOST";
+                                    status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
                                     branchName: string | null;
                                     ownerName: string | null;
                                     open: boolean;
@@ -6073,7 +6086,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Chi tiết lead (kèm lịch sử gọi, lịch hẹn)
+         * Chi tiết lead (kèm lịch sử gọi, lịch hẹn, lịch sử trạng thái)
          * @description **Quyền:** `crm.leads.read`
          */
         get: {
@@ -6205,8 +6218,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Sửa lead / đổi trạng thái (đang liên hệ, mất, mở lại)
-         * @description Gửi `If-Match: <version>`. `status = LOST` cần `lostReason`. Trạng thái theo lịch hẹn và chuyển đổi do hệ thống đặt.
+         * Sửa thông tin lead
+         * @description Gửi `If-Match: <version>`. Trạng thái đổi qua ghi cuộc gọi, `POST /crm/leads/:id/status` hoặc mở lại.
          *
          *     **Quyền:** `crm.leads.write`
          *
@@ -6237,9 +6250,6 @@ export interface paths {
                         /** @enum {string} */
                         source?: "FACEBOOK" | "ZALO" | "WEBSITE" | "HOTLINE" | "REFERRAL" | "WALK_IN" | "EVENT" | "OTHER";
                         notes?: string | null;
-                        /** @enum {string} */
-                        status?: "NEW" | "CONTACTING" | "LOST";
-                        lostReason?: string | null;
                     };
                 };
             };
@@ -6395,12 +6405,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ghi nhận cuộc gọi
-         * @description Lead mới → chuyển sang "đang liên hệ". `nextFollowUpAt` đặt lịch gọi lại.
+         * Ghi nhận cuộc gọi + trạng thái lead sau cuộc gọi
+         * @description Ghi chú và trạng thái sau cuộc gọi bắt buộc. `nextFollowUpAt` đặt lịch gọi lại. Chọn được S1B, S1C, S2A, S2B, S2C, S4B, S4C (S4B / S4C khi lead đã từng đạt S4) hoặc giữ nguyên trạng thái hiện tại. S1C / S2C / S4C cần `lostReason`; S4B cần `nextFollowUpAt` (ngày hẹn đóng phí). Lead đang có lịch hẹn chờ không chọn được trạng thái dưới S3. Lead đã đăng ký (S5) chỉ chọn lại được khi đăng ký bị huỷ.
          *
          *     **Quyền:** `crm.leads.write`
          *
-         *     **Mã lỗi nghiệp vụ:** `LEAD_CLOSED`
+         *     **Mã lỗi nghiệp vụ:** `LEAD_CLOSED`, `LEAD_ENROLLED`, `LEAD_HAS_APPOINTMENT`
          */
         post: {
             parameters: {
@@ -6417,7 +6427,10 @@ export interface paths {
                     "application/json": {
                         /** @enum {string} */
                         outcome: "TALKED" | "NO_ANSWER" | "BUSY" | "WRONG_NUMBER" | "CALL_BACK";
-                        note?: string | null;
+                        /** @enum {string} */
+                        status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
+                        note: string;
+                        lostReason?: string | null;
                         /** @example 2026-10-10T09:00:00+07:00 */
                         nextFollowUpAt?: string;
                     };
@@ -6426,6 +6439,195 @@ export interface paths {
             responses: {
                 /** @description Lead sau khi ghi */
                 201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: components["schemas"]["LeadDetail"];
+                        };
+                    };
+                };
+                /** @description Dữ liệu không hợp lệ (`VALIDATION_ERROR`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Chưa đăng nhập hoặc token hết hạn */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Không có quyền */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Lỗi hệ thống */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đổi trạng thái lead (không qua cuộc gọi)
+         * @description Ghi chú bắt buộc. Chọn được S1B, S1C, S2A, S2B, S2C, S4B, S4C (S4B / S4C khi lead đã từng đạt S4) hoặc giữ nguyên trạng thái hiện tại. S1C / S2C / S4C cần `lostReason`; S4B cần `nextFollowUpAt` (ngày hẹn đóng phí). Lead đang có lịch hẹn chờ không chọn được trạng thái dưới S3. Lead đã đăng ký (S5) chỉ chọn lại được khi đăng ký bị huỷ.
+         *
+         *     **Quyền:** `crm.leads.write`
+         *
+         *     **Mã lỗi nghiệp vụ:** `LEAD_CLOSED`, `LEAD_ENROLLED`, `LEAD_HAS_APPOINTMENT`
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ULID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
+                        note: string;
+                        lostReason?: string | null;
+                        /** @example 2026-10-10T09:00:00+07:00 */
+                        nextFollowUpAt?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Lead sau khi đổi */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            data: components["schemas"]["LeadDetail"];
+                        };
+                    };
+                };
+                /** @description Dữ liệu không hợp lệ (`VALIDATION_ERROR`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Chưa đăng nhập hoặc token hết hạn */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Không có quyền */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+                /** @description Lỗi hệ thống */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["Problem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/leads/{id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mở lại lead đã dừng
+         * @description Chỉ lead S1C / S2C / S4C; chọn S1B, S2A, S2B hoặc S4B (S4B khi đã từng đạt S4, kèm `nextFollowUpAt`). Ghi chú bắt buộc.
+         *
+         *     **Quyền:** `crm.leads.reopen`
+         *
+         *     **Mã lỗi nghiệp vụ:** `LEAD_NOT_STOPPED`, `LEAD_HAS_APPOINTMENT`
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description ULID */
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
+                        note: string;
+                        /** @example 2026-10-10T09:00:00+07:00 */
+                        nextFollowUpAt?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Lead sau khi mở lại */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6490,7 +6692,7 @@ export interface paths {
         put?: never;
         /**
          * Đặt lịch trải nghiệm / học thử
-         * @description Học thử (`TRIAL`) ngồi trong một buổi học LMS (`lmsSessionId` lấy từ GET /lms/trial-slots). LMS từ chối nếu hết chỗ → lịch tự huỷ.
+         * @description Học thử (`TRIAL`) ngồi trong một buổi học LMS (`lmsSessionId` lấy từ GET /lms/trial-slots). LMS từ chối nếu hết chỗ → lịch tự huỷ. Lead ở S1–S3 lên S3A; lead đã dừng hoặc đã đăng ký → `LEAD_CLOSED`.
          *
          *     **Quyền:** `crm.leads.write`
          *
@@ -6628,7 +6830,7 @@ export interface paths {
                                     parentPhone: string;
                                     ownerName: string | null;
                                     /** @enum {string} */
-                                    status: "NEW" | "CONTACTING" | "SCHEDULED" | "ATTENDED" | "NO_SHOW" | "CONVERTED" | "LOST";
+                                    status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
                                 };
                             }[];
                         };
@@ -6691,7 +6893,7 @@ export interface paths {
         put?: never;
         /**
          * Xác nhận / đến / không đến / huỷ lịch hẹn
-         * @description Trạng thái lead cập nhật theo. Học thử thường do giáo viên điểm danh bên LMS (đồng bộ tự động).
+         * @description Lead đang ở S3: xác nhận → S3B, không đến → S3C; đến → S4A (từ S1–S3). Huỷ lịch giữ nguyên trạng thái lead. Học thử thường do giáo viên điểm danh bên LMS (đồng bộ tự động).
          *
          *     **Quyền:** `crm.leads.write`
          *
@@ -6783,7 +6985,9 @@ export interface paths {
         head?: never;
         /**
          * Đổi giờ lịch trải nghiệm
-         * @description **Quyền:** `crm.leads.write`
+         * @description Lịch về trạng thái chờ; lead đang ở S3 về S3A.
+         *
+         *     **Quyền:** `crm.leads.write`
          *
          *     **Mã lỗi nghiệp vụ:** `TRIAL_RESCHEDULE`, `INVALID_STATE_TRANSITION`
          */
@@ -13737,11 +13941,21 @@ export interface components {
             /** @enum {string} */
             source: "FACEBOOK" | "ZALO" | "WEBSITE" | "HOTLINE" | "REFERRAL" | "WALK_IN" | "EVENT" | "OTHER";
             /** @enum {string} */
-            status: "NEW" | "CONTACTING" | "SCHEDULED" | "ATTENDED" | "NO_SHOW" | "CONVERTED" | "LOST";
+            status: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
+            statusChangedAt: string | null;
             lostReason: string | null;
             notes: string | null;
             lastContactedAt: string | null;
             nextFollowUpAt: string | null;
+            firstCalledAt: string | null;
+            reachedS2At: string | null;
+            reachedS3At: string | null;
+            reachedS4At: string | null;
+            reachedS5At: string | null;
+            /** @description Đăng ký của lead đã bị huỷ — chờ sale chọn lại trạng thái */
+            enrollmentCancelled: boolean;
+            /** @description S1B quá hạn khai thác (cài đặt `crm.leads.s1b_window_days`) */
+            stale: boolean;
             convertedStudentId: string | null;
             createdAt: string;
             version: number;
@@ -13755,6 +13969,11 @@ export interface components {
                 userName: string | null;
                 calledAt: string;
                 nextFollowUpAt: string | null;
+                /**
+                 * @description Trạng thái lead sau cuộc gọi
+                 * @enum {string|null}
+                 */
+                statusAfter: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B" | null;
             }[];
             appointments: {
                 id: string;
@@ -13766,6 +13985,19 @@ export interface components {
                 lmsSessionId: string | null;
                 note: string | null;
                 resultNote: string | null;
+            }[];
+            statusLogs: {
+                id: string;
+                /** @enum {string|null} */
+                fromStatus: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B" | null;
+                /** @enum {string} */
+                toStatus: "S1A" | "S1B" | "S1C" | "S2A" | "S2B" | "S2C" | "S3A" | "S3B" | "S3C" | "S4A" | "S4B" | "S4C" | "S5A" | "S5B";
+                /** @enum {string} */
+                source: "CREATE" | "CALL" | "MANUAL" | "REOPEN" | "APPOINTMENT" | "ENROLLMENT" | "PAYMENT";
+                note: string | null;
+                /** @description null = hệ thống tự đổi */
+                actorName: string | null;
+                createdAt: string;
             }[];
         };
         Student: {
@@ -13982,17 +14214,24 @@ export interface components {
                 amount: number;
             };
             pendingApprovals: number;
+            /** @description Lead tạo trong kỳ, đếm theo mốc lần đầu đạt mỗi bước — không đổi khi lead lùi / dừng */
             funnel: {
                 leads: number;
+                /** @description Từng đạt S2 (đã khai thác) */
                 contacted: number;
+                /** @description Từng đạt S3 (đã hẹn trial) */
                 appointed: number;
+                /** @description Từng đạt S4 (đã trial + tư vấn) */
                 attended: number;
+                /** @description Từng đạt S5 (đã đăng ký) */
                 converted: number;
+                /** @description Đang dừng (S1C, S2C, S4C) */
                 lost: number;
             };
             sources: {
                 source: string;
                 leads: number;
+                /** @description Từng đạt S5 */
                 converted: number;
             }[];
             ranking: {
@@ -14042,6 +14281,7 @@ export interface components {
             renewals: number;
             /** @description Lead mới nhận trong tháng (đang phụ trách) */
             leads: number;
+            /** @description Trong số lead đó, đã đăng ký (từng đạt S5) */
             converted: number;
             canEditTarget: boolean;
         };

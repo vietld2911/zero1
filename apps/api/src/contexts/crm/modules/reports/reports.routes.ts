@@ -28,7 +28,7 @@ const KpiRowSchema = z
     newEnrollments: z.number().int(),
     renewals: z.number().int(),
     leads: z.number().int().openapi({ description: 'Lead mới nhận trong tháng (đang phụ trách)' }),
-    converted: z.number().int(),
+    converted: z.number().int().openapi({ description: 'Trong số lead đó, đã đăng ký (từng đạt S5)' }),
     canEditTarget: z.boolean(),
   })
   .openapi('KpiRow');
@@ -64,15 +64,17 @@ const OverviewSchema = z
     outstanding: z.object({ amount: z.number().int(), enrollments: z.number().int() }),
     pendingPayments: z.object({ count: z.number().int(), amount: z.number().int() }),
     pendingApprovals: z.number().int(),
-    funnel: z.object({
-      leads: z.number().int(),
-      contacted: z.number().int(),
-      appointed: z.number().int(),
-      attended: z.number().int(),
-      converted: z.number().int(),
-      lost: z.number().int(),
-    }),
-    sources: z.array(z.object({ source: z.string(), leads: z.number().int(), converted: z.number().int() })),
+    funnel: z
+      .object({
+        leads: z.number().int(),
+        contacted: z.number().int().openapi({ description: 'Từng đạt S2 (đã khai thác)' }),
+        appointed: z.number().int().openapi({ description: 'Từng đạt S3 (đã hẹn trial)' }),
+        attended: z.number().int().openapi({ description: 'Từng đạt S4 (đã trial + tư vấn)' }),
+        converted: z.number().int().openapi({ description: 'Từng đạt S5 (đã đăng ký)' }),
+        lost: z.number().int().openapi({ description: 'Đang dừng (S1C, S2C, S4C)' }),
+      })
+      .openapi({ description: 'Lead tạo trong kỳ, đếm theo mốc lần đầu đạt mỗi bước — không đổi khi lead lùi / dừng' }),
+    sources: z.array(z.object({ source: z.string(), leads: z.number().int(), converted: z.number().int().openapi({ description: 'Từng đạt S5' }) })),
     ranking: z.array(z.object({ userId: z.string(), fullName: z.string(), role: z.string(), revenue: z.number().int() })),
     renewalsDue: z.number().int(),
     byBranch: z.array(z.object({ branchId: z.string(), name: z.string(), revenue: z.number().int(), newCount: z.number().int(), renewalCount: z.number().int() })),

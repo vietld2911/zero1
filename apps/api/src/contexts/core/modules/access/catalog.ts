@@ -75,6 +75,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { code: 'crm.leads.write', app: 'crm', description: 'Tạo / sửa lead, call log, lịch hẹn', roles: ['ADMIN', 'CM', 'SL', 'SALE', 'CS'] },
   { code: 'crm.leads.import', app: 'crm', description: 'Import lead', roles: ['ADMIN', 'CM', 'SL'] },
   { code: 'crm.leads.assign', app: 'crm', description: 'Phân công lead', roles: ['ADMIN', 'AM', 'CM', 'SL'] },
+  { code: 'crm.leads.reopen', app: 'crm', description: 'Mở lại lead đã dừng (S1C / S2C / S4C)', roles: ['ADMIN', 'AM', 'CM', 'SL'] },
   { code: 'crm.leads.delete', app: 'crm', description: 'Xoá lead', roles: ['ADMIN', 'CM'] },
   { code: 'crm.students.read', app: 'crm', description: 'Xem học viên', roles: ['ADMIN', 'AM', 'CM', 'SL', 'SALE', 'CS'] },
   { code: 'crm.students.write', app: 'crm', description: 'Sửa hồ sơ, phụ huynh, giấy tờ', roles: ['ADMIN', 'CM', 'SL', 'SALE', 'CS'] },

@@ -36,7 +36,7 @@ import {
 import { computeQuote, type QuoteInput } from '../pricing/pricing.core.js';
 import type { PricingService } from '../pricing/pricing.service.js';
 import type { PromotionsService } from '../promotions/promotions.service.js';
-import type { LeadsService } from '../leads/leads.service.js';
+import { leadEnrollmentHooks, transition, type LeadsService } from '../leads/leads.service.js';
 import { studentVisibility, type GuardianInput, type StudentProfileInput, type StudentsService } from '../students/students.service.js';
 
 const eventTables = { outboxEvents, processedEvents };
@@ -288,6 +288,7 @@ export function createEnrollmentsService({ db, core, pricing, promotions, leads:
 
     const student = await snapshotStudent(tx, e.studentId);
     if (student.status === 'PENDING') await tx.update(students).set({ status: 'ACTIVE', version: sql`${students.version} + 1` }).where(eq(students.id, student.id));
+    await leadEnrollmentHooks.activated(tx, e.studentId, e.code, actorId);
     const data: EnrollmentActivatedV1 = {
       enrollmentId: e.id,
       enrollmentCode: e.code,
@@ -457,6 +458,13 @@ export function createEnrollmentsService({ db, core, pricing, promotions, leads:
             ? req.guardians
             : [{ fullName: locked.parentName, relation: 'Phụ huynh', phone: locked.parentPhone, email: locked.parentEmail, isPrimary: true }],
         });
+        // Lead lên S5A trước khi tạo đăng ký: đăng ký được kích hoạt ngay (giảm 100%) thì lead lên tiếp S5B.
+        await transition(tx, locked, 'S5A', {
+          source: 'ENROLLMENT',
+          note: `Chuyển thành học viên ${student.code}`,
+          actorId: actor.userId,
+          set: { convertedStudentId: student.id, nextFollowUpAt: null, enrollmentCancelledAt: null },
+        });
         const enrollment = await insertTx(
           tx,
           actor,
@@ -464,10 +472,6 @@ export function createEnrollmentsService({ db, core, pricing, promotions, leads:
           req.enrollment,
           prepared,
         );
-        await tx
-          .update(leads)
-          .set({ status: 'CONVERTED', convertedStudentId: student.id, nextFollowUpAt: null, version: sql`${leads.version} + 1` })
-          .where(eq(leads.id, leadId));
         const data: LeadConvertedV1 = { leadId, studentId: student.id, enrollmentId: enrollment.id, ownerId };
         await appendEvent(tx, eventTables, { type: CRM_EVENTS.leadConverted, aggregateId: leadId, branchId: locked.branchId, actorId: actor.userId, data });
         return { studentId: student.id, enrollmentId: enrollment.id, approval: enrollment.approval };
@@ -506,6 +510,7 @@ export function createEnrollmentsService({ db, core, pricing, promotions, leads:
         // Doanh thu: đăng ký mới → sale; tái phí → CS chăm sóc (chưa có CS mà người tạo là CS → người tạo).
         const creditUserId = type === 'NEW' ? student.ownerId : (student.careId ?? (actor.role === 'CS' ? actor.userId : student.ownerId));
         const enrollment = await insertTx(tx, actor, { studentId, branchId: student.branchId, saleId: student.ownerId, creditUserId, type, idempotencyKey }, req, prepared);
+        await leadEnrollmentHooks.created(tx, studentId, enrollment.code, actor.userId);
         return { enrollmentId: enrollment.id, approval: enrollment.approval };
       }).catch(async (err: unknown) => {
         const done = await replay();
@@ -532,6 +537,11 @@ export function createEnrollmentsService({ db, core, pricing, promotions, leads:
           .update(discountApprovals)
           .set({ status: 'REJECTED', reviewNote: 'Đăng ký đã huỷ', reviewedAt: new Date(), reviewedBy: actor.userId })
           .where(and(eq(discountApprovals.enrollmentId, id), eq(discountApprovals.status, 'PENDING')));
+        const [others] = await tx
+          .select({ n: count() })
+          .from(enrollments)
+          .where(and(eq(enrollments.studentId, e.studentId), ne(enrollments.status, 'CANCELLED')));
+        await leadEnrollmentHooks.cancelled(tx, e.studentId, e.code, reason, actor.userId, others?.n ?? 0);
         if (e.activatedAt) {
           const data: EnrollmentCancelledV1 = { enrollmentId: id, studentId: e.studentId, reason };
           await appendEvent(tx, eventTables, { type: CRM_EVENTS.enrollmentCancelled, aggregateId: id, branchId: e.branchId, actorId: actor.userId, data });

@@ -34,4 +34,15 @@ export const SCHOLARSHIP_SESSIONS_PER_MONTH = defineSetting({
   input: { kind: 'number', unit: 'buổi', min: 1, max: 31 },
 });
 
-export const crmSettings = [CM_APPROVAL_LIMIT, RENEWAL_REMAINING_THRESHOLD, SCHOLARSHIP_SESSIONS_PER_MONTH];
+export const S1B_WINDOW_DAYS = defineSetting({
+  key: 'crm.leads.s1b_window_days',
+  app: 'crm',
+  label: 'Hạn khai thác lead S1B',
+  description: 'Lead S1B (chưa liên lạc được / hẹn tư vấn sau) quá số ngày này kể từ lần gọi đầu vào danh sách "quá hạn khai thác" để SL chia lại hoặc đóng.',
+  schema: z.number().int().min(1).max(365),
+  defaultValue: 120,
+  branchOverride: true,
+  input: { kind: 'number', unit: 'ngày', min: 1, max: 365 },
+});
+
+export const crmSettings = [CM_APPROVAL_LIMIT, RENEWAL_REMAINING_THRESHOLD, SCHOLARSHIP_SESSIONS_PER_MONTH, S1B_WINDOW_DAYS];

@@ -192,21 +192,21 @@ function Body({ data, today }: { data: Overview; today: string }) {
         <Card>
           <CardHeader>
             <CardTitle>Phễu tuyển sinh</CardTitle>
-            <p className="text-sm text-muted-foreground">Lead nhận trong kỳ và đã đi tới bước nào (đến nay).</p>
+            <p className="text-sm text-muted-foreground">Lead nhận trong kỳ, tính theo lần đầu đạt mỗi bước S1–S5 (đến nay).</p>
           </CardHeader>
           <CardContent>
             <BarList
               format={(v) => v.toLocaleString('vi-VN')}
               max={f.leads}
               items={[
-                { key: 'leads', label: 'Lead mới', value: f.leads },
-                { key: 'contacted', label: 'Đã liên hệ', value: f.contacted, detail: rate(f.contacted) },
-                { key: 'appointed', label: 'Có lịch hẹn', value: f.appointed, detail: rate(f.appointed) },
-                { key: 'attended', label: 'Đã đến', value: f.attended, detail: rate(f.attended) },
-                { key: 'converted', label: 'Đăng ký', value: f.converted, detail: rate(f.converted) },
+                { key: 'leads', label: 'S1 · Lead mới', value: f.leads },
+                { key: 'contacted', label: 'S2 · Đã khai thác', value: f.contacted, detail: rate(f.contacted) },
+                { key: 'appointed', label: 'S3 · Đã hẹn trial', value: f.appointed, detail: rate(f.appointed) },
+                { key: 'attended', label: 'S4 · Đã trial + tư vấn', value: f.attended, detail: rate(f.attended) },
+                { key: 'converted', label: 'S5 · Đã đăng ký', value: f.converted, detail: rate(f.converted) },
               ]}
             />
-            {f.lost > 0 && <p className="mt-3 text-xs text-muted-foreground">{f.lost} lead thất bại trong số lead nhận trong kỳ.</p>}
+            {f.lost > 0 && <p className="mt-3 text-xs text-muted-foreground">{f.lost} lead đã dừng (S1C / S2C / S4C) trong số lead nhận trong kỳ.</p>}
           </CardContent>
         </Card>
         <Card>

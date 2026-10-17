@@ -34,7 +34,17 @@ Kỳ chưa kết thúc chỉ so phần đã qua (`previousPeriod`, có unit test
 
 ## 5. Phễu tuyển sinh
 
-Lead **nhận trong kỳ**, đếm theo bước đã đi tới đến nay: đã liên hệ (khác “Mới”), có lịch hẹn, đã đến (có lịch hẹn “Đã đến”), đăng ký, thất bại.
+Lead **nhận trong kỳ**, đếm theo mốc **lần đầu đạt mỗi bước** (cột `reached_s2_at` … `reached_s5_at`, GĐ7) — lead lùi bước hoặc dừng sau đó vẫn được tính ở bước đã đạt:
+
+| Chỉ số | Điều kiện |
+|---|---|
+| Đã khai thác (`contacted`) | từng đạt S2 |
+| Đã hẹn trial (`appointed`) | từng đạt S3 |
+| Đã trial (`attended`) | từng đạt S4 |
+| Đã đăng ký (`converted`) | từng đạt S5 |
+| Đã dừng (`lost`) | đang ở S1C / S2C / S4C |
+
+Lead nhảy cóc (vd. S1 đặt lịch ngay → S3) có mốc của cả các bước thấp hơn. “Đăng ký” theo nguồn và cột “Lead đã chốt” ở bảng KPI cũng tính theo mốc S5.
 
 ## 6. Báo cáo học tập (LMS)
 
@@ -52,6 +62,7 @@ Chuông ở thanh trên cùng của cả hai app; thông báo của app kia mở
 |---|---|---|
 | `crm.lead.assigned` | Sale được giao | Tạo lead giao cho người khác, phân công, import Excel |
 | `crm.lead.follow_up_due` | Sale phụ trách | Đến hạn gọi lại (7:00–21:00, mỗi lịch nhắc một lần) |
+| `crm.lead.s1b_stale` | SL + CM chi nhánh | Có lead S1B quá hạn khai thác (mặc định 120 ngày từ lần gọi đầu, cài đặt `crm.leads.s1b_window_days`); một lần / chi nhánh / ngày |
 | `crm.trial.attended` / `no_show` / `cancelled` | Sale phụ trách | GV điểm danh khách học thử / LMS không nhận khách |
 | `crm.approval.requested` | CM hoặc AM của chi nhánh | Đăng ký cần duyệt ưu đãi |
 | `crm.approval.reviewed` | Người xin | Được duyệt / bị từ chối |

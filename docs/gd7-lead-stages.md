@@ -4,6 +4,14 @@ Nghiệp vụ đã chốt với @vietld nằm ở `docs/roadmap.md` (mục GĐ7)
 
 Làm trên nhánh `gd7-lead-stages`, push nhánh đó, **không merge vào `main`** — @vietld xem lại trước.
 
+> **Đã làm (2026-10-18)** — giữ file này làm tài liệu. Khác / bổ sung so với thiết kế:
+> - Lỗi mới: `LEAD_ENROLLED` (409, lead S5 chưa huỷ đăng ký mà chọn trạng thái khác), `LEAD_HAS_APPOINTMENT` (409, có lịch chờ mà chọn dưới S3), `LEAD_NOT_STOPPED` (409, mở lại lead chưa dừng). Chọn S3 / S4A / S5, S4B / S4C khi chưa đạt S4, thiếu lý do dừng, S4B thiếu ngày → 400.
+> - `GET /crm/leads`: `stopped=false` bỏ lead đã dừng (tab S1–S5 trên giao diện); sắp xếp thêm `statusChangedAt`, `firstCalledAt`.
+> - `statusAfter` của cuộc gọi: log theo `call_log_id`; cuộc gọi giữ nguyên trạng thái → trạng thái gần nhất trước cuộc gọi.
+> - Đăng ký mới cho học viên mà lead nguồn đang có đánh dấu huỷ **hoặc** đã bị chọn lùi dưới S5 → S5A.
+> - Lịch hẹn của lead đã dừng (dữ liệu cũ) được điểm danh → không tự đổi trạng thái.
+> - Thông báo `crm.lead.s1b_stale` mở `/leads?stale=true`.
+
 ## 1. Hiện trạng (trước GĐ7)
 
 - `leads.status` ∈ `NEW, CONTACTING, SCHEDULED, ATTENDED, NO_SHOW, CONVERTED, LOST` (`apps/api/src/contexts/crm/db/schema.ts`, `LEAD_STATUSES`).

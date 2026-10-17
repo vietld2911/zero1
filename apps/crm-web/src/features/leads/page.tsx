@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, FileSpreadsheet, Plus, Search, UserPlus } from 'lucide-react';
 import { unwrap, type Schemas } from '@zero1/api-client';
@@ -30,12 +30,17 @@ import {
   usePermission,
   useStaffOptions,
 } from '@zero1/web-core';
-import { crmKeys, LEAD_SOURCES, LEAD_STATUS, OWNER_ROLES } from '../labels';
+import { crmKeys, isStopped, LEAD_SOURCES, LEAD_STAGES, LEAD_STATUS, leadStatusText, OWNER_ROLES, stageOf, STOPPED_STATUSES, type LeadStatus } from '../labels';
 import { LeadFormDialog } from './lead-form';
+import { LeadStatusBadge } from './status';
 
 type Lead = Schemas['Lead'];
-type StatusFilter = 'ALL' | keyof typeof LEAD_STATUS;
+/** Tab S1 … S5 (không gồm trạng thái dừng) và tab "Đã dừng". */
+type Tab = 'ALL' | '1' | '2' | '3' | '4' | '5' | 'STOPPED';
 const PAGE_SIZE = 20;
+const ALL_STATUSES = Object.keys(LEAD_STATUS) as LeadStatus[];
+const statusesOf = (tab: Tab) =>
+  tab === 'ALL' ? [] : tab === 'STOPPED' ? STOPPED_STATUSES : ALL_STATUSES.filter((s) => String(stageOf(s)) === tab && !isStopped(s));
 
 export default function LeadsPage() {
   const api = useApi();
@@ -44,8 +49,12 @@ export default function LeadsPage() {
   const canWrite = usePermission('crm.leads.write');
   const canImport = usePermission('crm.leads.import');
   const canAssign = usePermission('crm.leads.assign');
+  const [searchParams] = useSearchParams();
 
-  const [status, setStatus] = useState<StatusFilter>('ALL');
+  const [tab, setTab] = useState<Tab>('ALL');
+  const [status, setStatus] = useState<LeadStatus | ''>('');
+  /** S1B quá hạn khai thác — SL trở lên (link từ thông báo: /leads?stale=true). */
+  const [stale, setStale] = useState(() => searchParams.get('stale') === 'true');
   const [q, setQ] = useState('');
   const [source, setSource] = useState('');
   const [owner, setOwner] = useState('');
@@ -64,7 +73,10 @@ export default function LeadsPage() {
     page,
     pageSize: PAGE_SIZE,
     q: search || undefined,
-    status: status === 'ALL' ? undefined : status,
+    status: status || undefined,
+    stage: !status && tab !== 'ALL' && tab !== 'STOPPED' ? tab : undefined,
+    stopped: status || tab === 'ALL' ? undefined : tab === 'STOPPED',
+    stale: stale || undefined,
     source: source || undefined,
     ownerId: owner || undefined,
     branchId: branchId || undefined,
@@ -85,7 +97,9 @@ export default function LeadsPage() {
   });
   const { data: staff = [] } = useStaffOptions(OWNER_ROLES, branchId || undefined, canAssign);
 
-  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined;
+  const countOf = (list: LeadStatus[]) => (counts ? list.reduce((n, s) => n + (counts[s] ?? 0), 0) : undefined);
+  const total = countOf(ALL_STATUSES);
+  const subStatuses = statusesOf(tab);
   const rows = data?.data;
   const allSelected = !!rows?.length && rows.every((r) => selected.has(r.id));
 
@@ -145,7 +159,17 @@ export default function LeadsPage() {
         </div>
       ),
     },
-    { key: 'status', header: 'Trạng thái', cell: (l) => <Badge tone={LEAD_STATUS[l.status].tone}>{LEAD_STATUS[l.status].label}</Badge> },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      cell: (l) => (
+        <div className="flex flex-wrap gap-1">
+          <LeadStatusBadge status={l.status} compact />
+          {l.stale && <Badge tone="danger">Quá hạn khai thác</Badge>}
+          {l.enrollmentCancelled && <Badge tone="danger">Đăng ký đã huỷ</Badge>}
+        </div>
+      ),
+    },
     {
       key: 'followUp',
       header: 'Gọi lại',
@@ -190,7 +214,7 @@ export default function LeadsPage() {
           className="mb-4"
           title={`${followUps.length} khách hàng đến hạn gọi lại`}
           action={
-            <Button size="sm" variant="outline" onClick={() => (setFollowUpDue(true), setStatus('ALL'), setPage(1))}>
+            <Button size="sm" variant="outline" onClick={() => (setFollowUpDue(true), setTab('ALL'), setStatus(''), setPage(1))}>
               <BellRing /> Xem
             </Button>
           }
@@ -204,15 +228,32 @@ export default function LeadsPage() {
       )}
 
       <Segmented
-        aria-label="Lọc theo trạng thái"
-        className="mb-3"
-        value={status}
-        onChange={resetPage(setStatus)}
+        aria-label="Lọc theo bước"
+        className="mb-2"
+        value={tab}
+        onChange={(t) => (setTab(t), setStatus(''), setPage(1), setSelected(new Set()))}
         options={[
           { value: 'ALL', label: 'Tất cả', count: total },
-          ...Object.entries(LEAD_STATUS).map(([k, v]) => ({ value: k as StatusFilter, label: v.label, count: counts?.[k as keyof typeof counts] })),
+          ...([1, 2, 3, 4, 5] as const).map((n) => ({
+            value: String(n) as Tab,
+            label: <span title={LEAD_STAGES[n]}>S{n}</span>,
+            count: countOf(statusesOf(String(n) as Tab)),
+          })),
+          { value: 'STOPPED', label: 'Đã dừng', count: countOf(STOPPED_STATUSES) },
         ]}
       />
+      {subStatuses.length > 1 && (
+        <Segmented
+          aria-label="Lọc theo trạng thái"
+          className="mb-3"
+          value={status || 'ALL'}
+          onChange={(v) => resetPage(setStatus)(v === 'ALL' ? '' : v)}
+          options={[
+            { value: 'ALL' as const, label: tab === 'STOPPED' ? 'Mọi lead đã dừng' : `${LEAD_STAGES[Number(tab) as 1]}` },
+            ...subStatuses.map((s) => ({ value: s, label: leadStatusText(s), count: counts?.[s] })),
+          ]}
+        />
+      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative w-full sm:w-72">
@@ -241,6 +282,7 @@ export default function LeadsPage() {
         </Select>
         <BranchSelect value={branchId} onChange={resetPage(setBranchId)} allLabel="Mọi chi nhánh" />
         <Checkbox label="Đến hạn gọi lại" checked={followUpDue} onCheckedChange={resetPage(setFollowUpDue)} />
+        {canAssign && <Checkbox label="S1B quá hạn khai thác" checked={stale} onCheckedChange={resetPage(setStale)} />}
       </div>
 
       {canAssign && selected.size > 0 && (
@@ -265,7 +307,7 @@ export default function LeadsPage() {
         rowKey={(l) => l.id}
         loading={isFetching}
         onRowClick={(l) => navigate(`/leads/${l.id}`)}
-        empty={search || source || owner || status !== 'ALL' || followUpDue ? 'Không có khách hàng khớp bộ lọc' : 'Chưa có khách hàng tiềm năng'}
+        empty={search || source || owner || status || tab !== 'ALL' || followUpDue || stale ? 'Không có khách hàng khớp bộ lọc' : 'Chưa có khách hàng tiềm năng'}
         pagination={data ? { page, pageSize: PAGE_SIZE, total: data.meta.total, onPageChange: setPage } : undefined}
       />
 

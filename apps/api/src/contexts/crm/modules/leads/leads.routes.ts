@@ -4,7 +4,7 @@ import { z } from '../../../../platform/openapi/zod.js';
 import { PhoneSchema } from '../../../../platform/text.js';
 import { requireFile, uploadSingle } from '../../../../platform/http/upload.js';
 import { ifMatchVersion } from '../../../../platform/http/headers.js';
-import { APPOINTMENT_STATUSES, LEAD_SOURCES, LEAD_STATUSES } from '../../db/schema.js';
+import { APPOINTMENT_STATUSES, LEAD_SOURCES, LEAD_STATUS_SOURCES, LEAD_STATUSES } from '../../db/schema.js';
 import type { AppointmentsService } from './appointments.service.js';
 import { buildLeadTemplate, parseLeadWorkbook } from './leads.excel.js';
 import type { LeadsService } from './leads.service.js';
@@ -28,10 +28,18 @@ export const LeadSchema = z
     interestSubjectId: z.string().nullable(),
     source: z.enum(LEAD_SOURCES),
     status: z.enum(LEAD_STATUSES),
+    statusChangedAt: z.string().nullable(),
     lostReason: z.string().nullable(),
     notes: z.string().nullable(),
     lastContactedAt: z.string().nullable(),
     nextFollowUpAt: z.string().nullable(),
+    firstCalledAt: z.string().nullable(),
+    reachedS2At: z.string().nullable(),
+    reachedS3At: z.string().nullable(),
+    reachedS4At: z.string().nullable(),
+    reachedS5At: z.string().nullable(),
+    enrollmentCancelled: z.boolean().openapi({ description: 'Đăng ký của lead đã bị huỷ — chờ sale chọn lại trạng thái' }),
+    stale: z.boolean().openapi({ description: 'S1B quá hạn khai thác (cài đặt `crm.leads.s1b_window_days`)' }),
     convertedStudentId: z.string().nullable(),
     createdAt: z.string(),
     version: z.number().int(),
@@ -45,6 +53,17 @@ const CallSchema = z.object({
   userName: z.string().nullable(),
   calledAt: z.string(),
   nextFollowUpAt: z.string().nullable(),
+  statusAfter: z.enum(LEAD_STATUSES).nullable().openapi({ description: 'Trạng thái lead sau cuộc gọi' }),
+});
+
+const StatusLogSchema = z.object({
+  id: z.string(),
+  fromStatus: z.enum(LEAD_STATUSES).nullable(),
+  toStatus: z.enum(LEAD_STATUSES),
+  source: z.enum(LEAD_STATUS_SOURCES),
+  note: z.string().nullable(),
+  actorName: z.string().nullable().openapi({ description: 'null = hệ thống tự đổi' }),
+  createdAt: z.string(),
 });
 
 const LeadAppointmentSchema = z.object({
@@ -57,7 +76,7 @@ const LeadAppointmentSchema = z.object({
   resultNote: z.string().nullable(),
 });
 
-const LeadDetailSchema = LeadSchema.extend({ calls: z.array(CallSchema), appointments: z.array(LeadAppointmentSchema) }).openapi('LeadDetail');
+const LeadDetailSchema = LeadSchema.extend({ calls: z.array(CallSchema), appointments: z.array(LeadAppointmentSchema), statusLogs: z.array(StatusLogSchema) }).openapi('LeadDetail');
 
 const instant = z.iso
   .datetime({ offset: true })
@@ -76,6 +95,18 @@ const leadFields = {
   notes: z.string().trim().max(2000).nullable().optional(),
 };
 
+/** Chọn trạng thái tay: ghi chú bắt buộc; dừng cần lý do; S4B cần ngày hẹn đóng phí. */
+const statusFields = {
+  status: z.enum(LEAD_STATUSES),
+  note: z.string().trim().min(3).max(1000),
+  lostReason: z.string().trim().max(500).nullable().optional(),
+  nextFollowUpAt: instant.nullable().optional(),
+};
+const STATUS_RULES =
+  'Chọn được S1B, S1C, S2A, S2B, S2C, S4B, S4C (S4B / S4C khi lead đã từng đạt S4) hoặc giữ nguyên trạng thái hiện tại. ' +
+  'S1C / S2C / S4C cần `lostReason`; S4B cần `nextFollowUpAt` (ngày hẹn đóng phí). Lead đang có lịch hẹn chờ không chọn được trạng thái dưới S3. ' +
+  'Lead đã đăng ký (S5) chỉ chọn lại được khi đăng ký bị huỷ.';
+
 export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, appointments: AppointmentsService) {
   const read = { permission: 'crm.leads.read' } as const;
   const write = { permission: 'crm.leads.write' } as const;
@@ -85,7 +116,7 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     path: '/crm/leads',
     tags: ['crm'],
     summary: 'Danh sách khách hàng tiềm năng',
-    description: 'SALE thấy lead của mình, SL thấy của đội, CM/CS/AM thấy theo chi nhánh. `ownerId=none` → chưa phân công.',
+    description: 'SALE thấy lead của mình, SL thấy của đội, CM/CS/AM thấy theo chi nhánh. `ownerId=none` → chưa phân công. `sort` nhận thêm `statusChangedAt`, `firstCalledAt`.',
     access: read,
     request: {
       query: PaginationQuery.extend({
@@ -95,6 +126,9 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
         branchId: ulid.optional(),
         ownerId: z.string().optional(),
         followUpDue: z.stringbool().optional().openapi({ type: 'boolean', description: 'Chỉ lead đến hạn gọi lại' }),
+        stage: z.string().optional().openapi({ description: 'Bước 1–5, nhiều giá trị cách nhau dấu phẩy' }),
+        stopped: z.stringbool().optional().openapi({ type: 'boolean', description: 'true = chỉ lead đã dừng (S1C, S2C, S4C); false = bỏ lead đã dừng' }),
+        stale: z.stringbool().optional().openapi({ type: 'boolean', description: 'Chỉ lead S1B quá hạn khai thác' }),
       }),
     },
     responses: { 200: { description: 'Lead', schema: list(LeadSchema) } },
@@ -210,7 +244,7 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     method: 'get',
     path: '/crm/leads/:id',
     tags: ['crm'],
-    summary: 'Chi tiết lead (kèm lịch sử gọi, lịch hẹn)',
+    summary: 'Chi tiết lead (kèm lịch sử gọi, lịch hẹn, lịch sử trạng thái)',
     access: read,
     request: { params: IdParams },
     responses: { 200: { description: 'Lead', schema: item(LeadDetailSchema) } },
@@ -221,16 +255,12 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     method: 'patch',
     path: '/crm/leads/:id',
     tags: ['crm'],
-    summary: 'Sửa lead / đổi trạng thái (đang liên hệ, mất, mở lại)',
-    description: 'Gửi `If-Match: <version>`. `status = LOST` cần `lostReason`. Trạng thái theo lịch hẹn và chuyển đổi do hệ thống đặt.',
+    summary: 'Sửa thông tin lead',
+    description: 'Gửi `If-Match: <version>`. Trạng thái đổi qua ghi cuộc gọi, `POST /crm/leads/:id/status` hoặc mở lại.',
     access: write,
     request: {
       params: IdParams,
-      body: z
-        .object(leadFields)
-        .partial()
-        .extend({ status: z.enum(['NEW', 'CONTACTING', 'LOST']).optional(), lostReason: z.string().trim().max(500).nullable().optional() })
-        .strict(),
+      body: z.object(leadFields).partial().strict(),
     },
     responses: { 200: { description: 'Sau khi sửa', schema: item(LeadDetailSchema) } },
     errorCodes: ['VERSION_CONFLICT', 'LEAD_CONVERTED', 'LEAD_DUPLICATE'],
@@ -268,20 +298,42 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     method: 'post',
     path: '/crm/leads/:id/calls',
     tags: ['crm'],
-    summary: 'Ghi nhận cuộc gọi',
-    description: 'Lead mới → chuyển sang "đang liên hệ". `nextFollowUpAt` đặt lịch gọi lại.',
+    summary: 'Ghi nhận cuộc gọi + trạng thái lead sau cuộc gọi',
+    description: `Ghi chú và trạng thái sau cuộc gọi bắt buộc. \`nextFollowUpAt\` đặt lịch gọi lại. ${STATUS_RULES}`,
     access: write,
     request: {
       params: IdParams,
-      body: z.object({
-        outcome: z.enum(['TALKED', 'NO_ANSWER', 'BUSY', 'WRONG_NUMBER', 'CALL_BACK']),
-        note: z.string().trim().max(1000).nullable().optional(),
-        nextFollowUpAt: instant.nullable().optional(),
-      }),
+      body: z.object({ outcome: z.enum(['TALKED', 'NO_ANSWER', 'BUSY', 'WRONG_NUMBER', 'CALL_BACK']), ...statusFields }),
     },
     responses: { 201: { description: 'Lead sau khi ghi', schema: item(LeadDetailSchema) } },
-    errorCodes: ['LEAD_CLOSED'],
+    errorCodes: ['LEAD_CLOSED', 'LEAD_ENROLLED', 'LEAD_HAS_APPOINTMENT'],
     handler: async ({ principal, params, body }) => ({ data: await leads.logCall(principal, params.id, body) }),
+  });
+
+  route({
+    method: 'post',
+    path: '/crm/leads/:id/status',
+    tags: ['crm'],
+    summary: 'Đổi trạng thái lead (không qua cuộc gọi)',
+    description: `Ghi chú bắt buộc. ${STATUS_RULES}`,
+    access: write,
+    request: { params: IdParams, body: z.object(statusFields) },
+    responses: { 200: { description: 'Lead sau khi đổi', schema: item(LeadDetailSchema) } },
+    errorCodes: ['LEAD_CLOSED', 'LEAD_ENROLLED', 'LEAD_HAS_APPOINTMENT'],
+    handler: async ({ principal, params, body }) => ({ data: await leads.changeStatus(principal, params.id, body) }),
+  });
+
+  route({
+    method: 'post',
+    path: '/crm/leads/:id/reopen',
+    tags: ['crm'],
+    summary: 'Mở lại lead đã dừng',
+    description: 'Chỉ lead S1C / S2C / S4C; chọn S1B, S2A, S2B hoặc S4B (S4B khi đã từng đạt S4, kèm `nextFollowUpAt`). Ghi chú bắt buộc.',
+    access: { permission: 'crm.leads.reopen' },
+    request: { params: IdParams, body: z.object({ status: statusFields.status, note: statusFields.note, nextFollowUpAt: statusFields.nextFollowUpAt }) },
+    responses: { 200: { description: 'Lead sau khi mở lại', schema: item(LeadDetailSchema) } },
+    errorCodes: ['LEAD_NOT_STOPPED', 'LEAD_HAS_APPOINTMENT'],
+    handler: async ({ principal, params, body }) => ({ data: await leads.reopen(principal, params.id, body) }),
   });
 
   // ─────────── Lịch hẹn
@@ -291,7 +343,9 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     path: '/crm/leads/:id/appointments',
     tags: ['crm'],
     summary: 'Đặt lịch trải nghiệm / học thử',
-    description: 'Học thử (`TRIAL`) ngồi trong một buổi học LMS (`lmsSessionId` lấy từ GET /lms/trial-slots). LMS từ chối nếu hết chỗ → lịch tự huỷ.',
+    description:
+      'Học thử (`TRIAL`) ngồi trong một buổi học LMS (`lmsSessionId` lấy từ GET /lms/trial-slots). LMS từ chối nếu hết chỗ → lịch tự huỷ. ' +
+      'Lead ở S1–S3 lên S3A; lead đã dừng hoặc đã đăng ký → `LEAD_CLOSED`.',
     access: write,
     request: {
       params: IdParams,
@@ -355,7 +409,9 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     path: '/crm/appointments/:id/status',
     tags: ['crm'],
     summary: 'Xác nhận / đến / không đến / huỷ lịch hẹn',
-    description: 'Trạng thái lead cập nhật theo. Học thử thường do giáo viên điểm danh bên LMS (đồng bộ tự động).',
+    description:
+      'Lead đang ở S3: xác nhận → S3B, không đến → S3C; đến → S4A (từ S1–S3). Huỷ lịch giữ nguyên trạng thái lead. ' +
+      'Học thử thường do giáo viên điểm danh bên LMS (đồng bộ tự động).',
     access: write,
     request: {
       params: IdParams,
@@ -373,6 +429,7 @@ export function registerLeadRoutes(route: RouteRegistrar, leads: LeadsService, a
     path: '/crm/appointments/:id',
     tags: ['crm'],
     summary: 'Đổi giờ lịch trải nghiệm',
+    description: 'Lịch về trạng thái chờ; lead đang ở S3 về S3A.',
     access: write,
     request: { params: IdParams, body: z.object({ scheduledAt: instant, note: z.string().trim().max(1000).nullable().optional() }) },
     responses: { 204: { description: 'Đã đổi' } },

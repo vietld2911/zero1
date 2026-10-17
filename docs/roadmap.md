@@ -6,7 +6,7 @@ Trạng thái: ⬜ chưa làm · 🟨 đang phân tích / đang làm · ✅ xong
 
 | GĐ | Nội dung | Trạng thái |
 |---|---|---|
-| 7 | Trạng thái lead S1–S5 (phễu tuyển sinh) — thiết kế kỹ thuật: [gd7-lead-stages.md](gd7-lead-stages.md) | 🟨 chốt nghiệp vụ, chưa code |
+| 7 | Trạng thái lead S1–S5 (phễu tuyển sinh) — thiết kế kỹ thuật: [gd7-lead-stages.md](gd7-lead-stages.md) | ✅ nhánh `gd7-lead-stages`, chờ @vietld duyệt |
 | 8 | Nhật ký thao tác (#22) — làm sớm để các tính năng sau đều ghi vết | ⬜ |
 | 9 | Tài chính: tự xác nhận chuyển khoản (#8), lịch đóng tiền nhiều đợt + nhắc nợ (#9), hoàn tiền / chuyển phí / bảo lưu có phí (#10) | ⬜ |
 | 10 | Chăm sóc: cảnh báo nguy cơ nghỉ học (#13), lịch chăm sóc định kỳ + khảo sát hài lòng (#14), báo cáo học tập tháng gửi phụ huynh (#16) | ⬜ |

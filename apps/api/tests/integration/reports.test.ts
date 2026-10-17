@@ -183,7 +183,7 @@ describe('thông báo', () => {
   it('nhắc gọi lại: đến hạn trong giờ làm việc, mỗi lịch nhắc một lần', async () => {
     const at = new Date(`${vnDate()}T03:00:00Z`); // 10:00 giờ VN hôm nay
     const lead = await t.as(sale1.token).post('/api/v1/crm/leads', { parentName: 'PH', parentPhone: '0918888888', childName: 'Bé Gấm', source: 'ZALO' });
-    await t.as(sale1.token).post(`/api/v1/crm/leads/${lead.body.data.id}/calls`, { outcome: 'CALL_BACK', nextFollowUpAt: new Date(at.getTime() - 10 * 60_000).toISOString() });
+    await t.as(sale1.token).post(`/api/v1/crm/leads/${lead.body.data.id}/calls`, { outcome: 'CALL_BACK', note: 'Hẹn gọi lại', status: 'S1B', nextFollowUpAt: new Date(at.getTime() - 10 * 60_000).toISOString() });
     await t.runJobs(at);
     await t.runJobs(at);
     const reminders = (await notificationsOf(sale1)).filter((n) => n.type === 'crm.lead.follow_up_due');
@@ -194,7 +194,7 @@ describe('thông báo', () => {
   it('ngoài giờ làm việc không nhắc gọi lại', async () => {
     const night = new Date(`${vnDate()}T16:00:00Z`); // 23:00 giờ VN
     const lead = await t.as(sale2.token).post('/api/v1/crm/leads', { parentName: 'PH', parentPhone: '0917777777', childName: 'Bé Hạnh', source: 'ZALO' });
-    await t.as(sale2.token).post(`/api/v1/crm/leads/${lead.body.data.id}/calls`, { outcome: 'CALL_BACK', nextFollowUpAt: new Date(night.getTime() - 60_000).toISOString() });
+    await t.as(sale2.token).post(`/api/v1/crm/leads/${lead.body.data.id}/calls`, { outcome: 'CALL_BACK', note: 'Hẹn gọi lại', status: 'S1B', nextFollowUpAt: new Date(night.getTime() - 60_000).toISOString() });
     await t.runJobs(night);
     expect((await notificationsOf(sale2)).filter((n) => n.type === 'crm.lead.follow_up_due')).toHaveLength(0);
   });

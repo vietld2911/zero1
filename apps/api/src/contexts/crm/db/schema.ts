@@ -120,7 +120,12 @@ export const promotionStockMoves = mysqlTable(
 
 export const sequences = defineSequenceTable();
 
-export const LEAD_STATUSES = ['NEW', 'CONTACTING', 'SCHEDULED', 'ATTENDED', 'NO_SHOW', 'CONVERTED', 'LOST'] as const;
+/**
+ * Trạng thái lead theo phễu S1–S5 (docs/roadmap.md GĐ7): A = đang xử lý, B = chờ việc cụ thể, C = dừng ở bước này.
+ * Quy tắc chuyển trạng thái: `modules/leads/stages.ts`.
+ */
+export const LEAD_STATUSES = ['S1A', 'S1B', 'S1C', 'S2A', 'S2B', 'S2C', 'S3A', 'S3B', 'S3C', 'S4A', 'S4B', 'S4C', 'S5A', 'S5B'] as const;
+export const LEAD_STATUS_SOURCES = ['CREATE', 'CALL', 'MANUAL', 'REOPEN', 'APPOINTMENT', 'ENROLLMENT', 'PAYMENT'] as const;
 export const LEAD_SOURCES = ['FACEBOOK', 'ZALO', 'WEBSITE', 'HOTLINE', 'REFERRAL', 'WALK_IN', 'EVENT', 'OTHER'] as const;
 
 /** Khách hàng tiềm năng: phụ huynh + con. Một số điện thoại có thể có nhiều con (nhiều lead). */
@@ -139,11 +144,21 @@ export const leads = mysqlTable(
     school: varchar('school', { length: 200 }),
     interestSubjectId: ulid('interest_subject_id'),
     source: varchar('source', { length: 20, enum: LEAD_SOURCES }).notNull(),
-    status: varchar('status', { length: 20, enum: LEAD_STATUSES }).notNull().default('NEW'),
+    status: varchar('status', { length: 20, enum: LEAD_STATUSES }).notNull().default('S1A'),
+    statusChangedAt: instant('status_changed_at'),
     lostReason: varchar('lost_reason', { length: 500 }),
     notes: varchar('notes', { length: 2000 }),
     lastContactedAt: instant('last_contacted_at'),
     nextFollowUpAt: instant('next_follow_up_at'),
+    /** Lần gọi đầu tiên — tính hạn khai thác của S1B. */
+    firstCalledAt: instant('first_called_at'),
+    /** Lần đầu đạt mỗi bước (không bao giờ xoá) — phễu báo cáo không đổi khi lead lùi / dừng. */
+    reachedS2At: instant('reached_s2_at'),
+    reachedS3At: instant('reached_s3_at'),
+    reachedS4At: instant('reached_s4_at'),
+    reachedS5At: instant('reached_s5_at'),
+    /** Đăng ký của lead (S5) đã bị huỷ — chờ sale chọn lại trạng thái. */
+    enrollmentCancelledAt: instant('enrollment_cancelled_at'),
     convertedStudentId: ulid('converted_student_id'),
     createdBy: ulid('created_by').notNull(),
     version: int('version').notNull().default(1),
@@ -164,11 +179,30 @@ export const leadCallLogs = mysqlTable(
     leadId: ulid('lead_id').notNull(),
     userId: ulid('user_id').notNull(),
     outcome: varchar('outcome', { length: 20, enum: ['TALKED', 'NO_ANSWER', 'BUSY', 'WRONG_NUMBER', 'CALL_BACK'] }).notNull(),
+    /** Bắt buộc ở API; cột để nullable cho dữ liệu cũ. */
     note: varchar('note', { length: 1000 }),
     nextFollowUpAt: instant('next_follow_up_at'),
     calledAt: instant('called_at').notNull(),
   },
   (t) => [index('lead_call_logs_lead_idx').on(t.leadId, t.calledAt)],
+);
+
+/** Lịch sử đổi trạng thái lead. `actorId = null` → hệ thống tự đổi. */
+export const leadStatusLogs = mysqlTable(
+  'lead_status_logs',
+  {
+    id: ulid('id').primaryKey(),
+    leadId: ulid('lead_id').notNull(),
+    /** null khi tạo lead. */
+    fromStatus: varchar('from_status', { length: 20, enum: LEAD_STATUSES }),
+    toStatus: varchar('to_status', { length: 20, enum: LEAD_STATUSES }).notNull(),
+    source: varchar('source', { length: 12, enum: LEAD_STATUS_SOURCES }).notNull(),
+    note: varchar('note', { length: 1000 }),
+    callLogId: ulid('call_log_id'),
+    actorId: ulid('actor_id'),
+    createdAt: instant('created_at').notNull(),
+  },
+  (t) => [index('lead_status_logs_lead_idx').on(t.leadId, t.createdAt)],
 );
 
 export const APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'ATTENDED', 'NO_SHOW', 'CANCELLED'] as const;

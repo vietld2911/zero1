@@ -1,13 +1,14 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
 import { AppError, Errors } from '../../../../platform/http/errors.js';
 import { can, type Principal } from '../../../../platform/auth/principal.js';
 import { scopeWhere } from '../../../../platform/auth/scope-sql.js';
 import { daysBetween, monthRange, shiftDate, toApiInstant, vnDate, vnDayStart } from '../../../../platform/time.js';
 import type { BranchSummary, CoreContract, UserSummary } from '../../../core/contract/index.js';
 import type { CrmDb } from '../../db/types.js';
-import { discountApprovals, enrollments, guardians, kpiTargets, leadAppointments, leads, payments, students } from '../../db/schema.js';
+import { discountApprovals, enrollments, guardians, kpiTargets, leads, payments, students } from '../../db/schema.js';
 import { RENEWAL_REMAINING_THRESHOLD } from '../../settings.js';
 import { leadVisibility } from '../leads/leads.service.js';
+import { STOPPED_STATUSES } from '../leads/stages.js';
 import { studentVisibility } from '../students/students.service.js';
 
 /** Vai trò có doanh thu / mục tiêu: sale (đăng ký mới), CS (tái phí). CM chỉ hiện khi có số liệu. */
@@ -187,8 +188,6 @@ export function createReportsService(db: CrmDb, core: CoreContract) {
       const end = vnDayStart(shiftDate(q.to, 1));
 
       const leadScope = and(leadVisibility(actor), q.branchId ? eq(leads.branchId, q.branchId) : undefined, gte(leads.createdAt, start), lt(leads.createdAt, end));
-      const hasAppointment = (status?: string) =>
-        sql`EXISTS (SELECT 1 FROM ${leadAppointments} a WHERE a.lead_id = ${leads.id}${status ? sql` AND a.status = ${status}` : sql``})`;
       const flag = (cond: SQL) => sql<number>`COALESCE(SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END), 0)`.mapWith(Number);
 
       const [revenue, prevRevenue, enrolled, [outstanding], [pending], [approvals], [funnel], sources, targetRows, due] = await Promise.all([
@@ -221,16 +220,16 @@ export function createReportsService(db: CrmDb, core: CoreContract) {
         db
           .select({
             total: count(),
-            contacted: flag(sql`${leads.status} <> 'NEW'`),
-            appointed: flag(hasAppointment()),
-            attended: flag(hasAppointment('ATTENDED')),
-            converted: flag(sql`${leads.status} = 'CONVERTED'`),
-            lost: flag(sql`${leads.status} = 'LOST'`),
+            contacted: flag(isNotNull(leads.reachedS2At)),
+            appointed: flag(isNotNull(leads.reachedS3At)),
+            attended: flag(isNotNull(leads.reachedS4At)),
+            converted: flag(isNotNull(leads.reachedS5At)),
+            lost: flag(inArray(leads.status, STOPPED_STATUSES)),
           })
           .from(leads)
           .where(leadScope),
         db
-          .select({ source: leads.source, n: count(), converted: flag(sql`${leads.status} = 'CONVERTED'`) })
+          .select({ source: leads.source, n: count(), converted: flag(isNotNull(leads.reachedS5At)) })
           .from(leads)
           .where(leadScope)
           .groupBy(leads.source)
@@ -336,7 +335,7 @@ export function createReportsService(db: CrmDb, core: CoreContract) {
           .from(kpiTargets)
           .where(and(eq(kpiTargets.month, q.month), inArray(kpiTargets.branchId, branchIds.length ? branchIds : ['']))),
         db
-          .select({ ownerId: leads.ownerId, n: count(), converted: sql<number>`COALESCE(SUM(CASE WHEN ${leads.status} = 'CONVERTED' THEN 1 ELSE 0 END), 0)`.mapWith(Number) })
+          .select({ ownerId: leads.ownerId, n: count(), converted: sql<number>`COALESCE(SUM(CASE WHEN ${leads.reachedS5At} IS NOT NULL THEN 1 ELSE 0 END), 0)`.mapWith(Number) })
           .from(leads)
           .where(
             and(

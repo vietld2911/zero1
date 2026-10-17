@@ -80,6 +80,7 @@ Ký hiệu: ✔ có quyền (trong phạm vi dữ liệu của mình) · ◐ có
 | `crm.leads.write` (tạo / sửa / call log / lịch hẹn) | ✔ | | ✔ | ✔ | ✔ | ✔ |
 | `crm.leads.import` | ✔ | | ✔ | ✔ | | |
 | `crm.leads.assign` | ✔ | ✔ | ✔ | ✔ | | |
+| `crm.leads.reopen` (mở lại lead đã dừng S1C / S2C / S4C) | ✔ | ✔ | ✔ | ✔ | | |
 | `crm.leads.delete` | ✔ | | ✔ | | | |
 | `crm.students.read` | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | `crm.students.write` (hồ sơ, phụ huynh, giấy tờ) | ✔ | | ✔ | ✔ | ✔ | ✔ |

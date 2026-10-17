@@ -6,7 +6,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, unwrap, type Schemas } from '@zero1/api-client';
 import { Alert, Badge, Button, Checkbox, Dialog, Field, Input, Select, Textarea, toast } from '@zero1/ui';
 import { applyFieldErrors, BranchSelect, errorMessage, useApi, useBranches, useDefaultBranch, usePermission } from '@zero1/web-core';
-import { crmKeys, LEAD_SOURCES, LEAD_STATUS, type LeadSource } from '../labels';
+import { crmKeys, LEAD_SOURCES, type LeadSource } from '../labels';
+import { LeadStatusBadge } from './status';
 
 type Lead = Schemas['Lead'];
 
@@ -137,7 +138,7 @@ export function LeadFormDialog({ lead, onClose, onSaved }: { lead: Lead | null; 
                     </>
                   ) : (
                     <>
-                      <Badge tone={LEAD_STATUS[d.status].tone}>{LEAD_STATUS[d.status].label}</Badge> {d.childName}
+                      <LeadStatusBadge status={d.status} /> {d.childName}
                       {d.ownerName && <span className="text-muted-foreground">· {d.ownerName}</span>}
                     </>
                   )}

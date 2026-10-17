@@ -36,6 +36,13 @@
       "when": 1791514416025,
       "tag": "0004_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1792259835992,
+      "tag": "0005_lead_stages",
+      "breakpoints": true
     }
   ]
 }

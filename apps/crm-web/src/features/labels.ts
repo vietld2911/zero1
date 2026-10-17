@@ -3,15 +3,50 @@ import type { BadgeProps } from '@zero1/ui';
 type Tone = NonNullable<BadgeProps['tone']>;
 type Labels<K extends string> = Record<K, { label: string; tone: Tone }>;
 
-export const LEAD_STATUS: Labels<'NEW' | 'CONTACTING' | 'SCHEDULED' | 'ATTENDED' | 'NO_SHOW' | 'CONVERTED' | 'LOST'> = {
-  NEW: { label: 'Mới', tone: 'info' },
-  CONTACTING: { label: 'Đang liên hệ', tone: 'brand' },
-  SCHEDULED: { label: 'Đã hẹn', tone: 'warning' },
-  ATTENDED: { label: 'Đã đến', tone: 'success' },
-  NO_SHOW: { label: 'Không đến', tone: 'danger' },
-  CONVERTED: { label: 'Đã đăng ký', tone: 'success' },
-  LOST: { label: 'Thất bại', tone: 'neutral' },
+/** Trạng thái lead S1–S5 (docs/roadmap.md GĐ7). A = đang xử lý, B = chờ việc cụ thể, C = dừng. */
+export type LeadStatus = 'S1A' | 'S1B' | 'S1C' | 'S2A' | 'S2B' | 'S2C' | 'S3A' | 'S3B' | 'S3C' | 'S4A' | 'S4B' | 'S4C' | 'S5A' | 'S5B';
+export const LEAD_STATUS: Labels<LeadStatus> = {
+  S1A: { label: 'Lead mới', tone: 'info' },
+  S1B: { label: 'Chưa liên lạc được', tone: 'warning' },
+  S1C: { label: 'Không nhu cầu / sai số', tone: 'neutral' },
+  S2A: { label: 'Quan tâm', tone: 'brand' },
+  S2B: { label: 'Đang cân nhắc', tone: 'brand' },
+  S2C: { label: 'Từ chối sau tư vấn', tone: 'neutral' },
+  S3A: { label: 'Đã đặt lịch', tone: 'info' },
+  S3B: { label: 'Đã xác nhận lịch', tone: 'info' },
+  S3C: { label: 'Không đến', tone: 'danger' },
+  S4A: { label: 'Đã trial, cân nhắc', tone: 'warning' },
+  S4B: { label: 'Hẹn đóng phí', tone: 'warning' },
+  S4C: { label: 'Từ chối sau trial', tone: 'neutral' },
+  S5A: { label: 'Đã đăng ký, chờ đóng tiền', tone: 'success' },
+  S5B: { label: 'Đã đóng tiền', tone: 'success' },
 };
+/** "S2A · Quan tâm" */
+export const leadStatusText = (s: LeadStatus) => `${s} · ${LEAD_STATUS[s].label}`;
+export const LEAD_STAGES = {
+  1: 'Chưa khai thác',
+  2: 'Đã khai thác',
+  3: 'Đã hẹn trial',
+  4: 'Đã trial + tư vấn',
+  5: 'Đã đăng ký',
+} as const;
+export type LeadStage = keyof typeof LEAD_STAGES;
+export const stageOf = (s: LeadStatus) => Number(s[1]) as LeadStage;
+/** Lead đã dừng (S3C không phải dừng — cần hẹn lại). */
+export const STOPPED_STATUSES: LeadStatus[] = ['S1C', 'S2C', 'S4C'];
+export const isStopped = (s: LeadStatus) => STOPPED_STATUSES.includes(s);
+/** Trạng thái chọn tay được; S3 / S4A / S5 chỉ đi theo lịch hẹn, điểm danh, đăng ký. */
+export const MANUAL_STATUSES: LeadStatus[] = ['S1B', 'S1C', 'S2A', 'S2B', 'S2C', 'S4B', 'S4C'];
+
+export const LEAD_STATUS_SOURCES = {
+  CREATE: 'Tạo lead',
+  CALL: 'Cuộc gọi',
+  MANUAL: 'Đổi tay',
+  REOPEN: 'Mở lại',
+  APPOINTMENT: 'Lịch hẹn',
+  ENROLLMENT: 'Đăng ký',
+  PAYMENT: 'Thu tiền',
+} as const;
 
 export const LEAD_SOURCES = {
   FACEBOOK: 'Facebook',

@@ -236,8 +236,9 @@ describe('lớp học và buổi học', () => {
     expect(await t.as(teacher.token).post(`/api/v1/lms/trial-guests/${s.trialGuests[0].id}/check`, { result: 'ATTENDED', note: 'Bé hào hứng' })).toHaveProperty('status', 204);
     await t.drainEvents();
     const lead = (await t.as(sale.token).get(`/api/v1/crm/leads/${leadId}`)).body.data;
-    expect(lead.status).toBe('ATTENDED');
+    expect(lead.status).toBe('S4A'); // LMS điểm danh có mặt → lead lên S4A
     expect(lead.appointments[0]).toMatchObject({ status: 'ATTENDED' });
+    expect(lead.statusLogs[0]).toMatchObject({ fromStatus: 'S3A', toStatus: 'S4A', source: 'APPOINTMENT', actorName: 'Cô Lan' });
   });
 
   it('học thử vào buổi đã diễn ra → LMS từ chối, CRM huỷ lịch hẹn', async () => {
