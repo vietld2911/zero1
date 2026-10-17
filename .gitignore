@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.production.example
+apps/api/openapi.json
+.vite/
+*.log
+.DS_Store
+Thumbs.db
+apps/api/uploads/

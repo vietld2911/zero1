@@ -1,0 +1,89 @@
+# Zero1 production: MariaDB + API + Caddy (CRM/LMS static, HTTPS) + backup hằng ngày.
+#   cd deploy && cp .env.production.example .env && (sửa .env) && docker compose up -d --build
+name: zero1
+
+services:
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?}
+      MARIADB_USER: ${DB_USER:?}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?}
+      TZ: Asia/Ho_Chi_Minh
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-connections=200"]
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./mariadb/01-grants.sh:/docker-entrypoint-initdb.d/01-grants.sh:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: db
+      DB_PORT: 3306
+      TRUST_PROXY: "true"
+      CRM_WEB_URL: https://${CRM_DOMAIN:?}
+      LMS_WEB_URL: https://${LMS_DOMAIN:?}
+      CORS_ORIGINS: https://${CRM_DOMAIN},https://${LMS_DOMAIN}
+    volumes:
+      - uploads:/data/uploads
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        VITE_CRM_URL: https://${CRM_DOMAIN}
+        VITE_LMS_URL: https://${LMS_DOMAIN}
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      CRM_DOMAIN: ${CRM_DOMAIN}
+      LMS_DOMAIN: ${LMS_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+  backup:
+    image: mariadb:10.11
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["sh", "/backup.sh"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      DB_NAME_CORE: ${DB_NAME_CORE:-zero1_core}
+      DB_NAME_CRM: ${DB_NAME_CRM:-zero1_crm}
+      DB_NAME_LMS: ${DB_NAME_LMS:-zero1_lms}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backups:/backups
+
+volumes:
+  db-data:
+  uploads:
+  caddy-data:
+  caddy-config:

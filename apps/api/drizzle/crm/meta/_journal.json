@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1791388159751,
+      "tag": "0000_crazy_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1791431469582,
+      "tag": "0001_catalog_levels",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791432815148,
+      "tag": "0002_packages_promotions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1791433756145,
+      "tag": "0003_sales",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1791514416025,
+      "tag": "0004_reports",
+      "breakpoints": true
+    }
+  ]
+}

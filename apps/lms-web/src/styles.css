@@ -1,0 +1,6 @@
+@import 'tailwindcss';
+@import '@zero1/ui/styles.css';
+
+/* Tailwind quét class trong các package dùng chung */
+@source '../../../packages/ui/src';
+@source '../../../packages/web-core/src';

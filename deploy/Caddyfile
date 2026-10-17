@@ -1,0 +1,49 @@
+# 3 subdomain: CRM, LMS (web + /api cùng origin) và API công khai cho tích hợp / app phụ huynh.
+# HTTPS tự động (Let's Encrypt) — DNS 3 subdomain phải trỏ về VPS trước khi chạy.
+{
+	email {$ACME_EMAIL}
+}
+
+(app) {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+	handle /files/* {
+		reverse_proxy api:4000
+	}
+	handle {
+		# SPA: đường dẫn không phải file → index.html
+		try_files {path} /index.html
+		file_server
+	}
+
+	# File build có hash → cache lâu; index.html luôn kiểm tra bản mới.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@nothashed not path /assets/*
+	header @nothashed Cache-Control "no-cache"
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+{$CRM_DOMAIN} {
+	root * /srv/crm
+	import app
+}
+
+{$LMS_DOMAIN} {
+	root * /srv/lms
+	import app
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:4000
+	header -Server
+}

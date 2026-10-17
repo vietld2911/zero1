@@ -1,0 +1,71 @@
+/*
+ * Zero1 design tokens (docs/architecture.md §9).
+ * App import file này SAU `@import "tailwindcss"`.
+ */
+@import '@fontsource/exo-2/400.css';
+@import '@fontsource/exo-2/500.css';
+@import '@fontsource/exo-2/600.css';
+@import '@fontsource/exo-2/700.css';
+
+@theme {
+  --font-sans: 'Exo 2', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Navy — màu chủ đạo, 900 = #13233F */
+  --color-navy-50: #f2f5fa;
+  --color-navy-100: #e3e9f3;
+  --color-navy-200: #c5d1e4;
+  --color-navy-300: #9aaecb;
+  --color-navy-400: #6a84ab;
+  --color-navy-500: #48638d;
+  --color-navy-600: #344b71;
+  --color-navy-700: #263a5a;
+  --color-navy-800: #1b2c48;
+  --color-navy-900: #13233f;
+  --color-navy-950: #0b1528;
+
+  /* Cyan & lime lấy từ logo — điểm nhấn, không dùng làm màu trạng thái */
+  --color-cyan-brand: #00b4f0;
+  --color-cyan-brand-soft: #e0f6fe;
+  --color-lime-brand: #a6e22e;
+
+  /* Màu ngữ nghĩa — component chỉ dùng nhóm này */
+  --color-background: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-foreground: #13233f;
+  --color-muted: #eef1f6;
+  --color-muted-foreground: #5b6b84;
+  --color-border: #dde3ec;
+  --color-ring: #00b4f0;
+
+  --color-primary: #13233f;
+  --color-primary-hover: #1b2c48;
+  --color-primary-foreground: #ffffff;
+
+  --color-success: #15803d;
+  --color-success-soft: #dcfce7;
+  --color-warning: #b45309;
+  --color-warning-soft: #fef3c7;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-info: #0369a1;
+  --color-info-soft: #e0f2fe;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-card: 0 1px 2px rgb(19 35 63 / 0.06), 0 1px 3px rgb(19 35 63 / 0.04);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'tnum' 1; /* số cùng độ rộng — bảng và KPI thẳng cột */
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}

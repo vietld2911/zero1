@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1791388160299,
+      "tag": "0000_petite_cyclops",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1791431468156,
+      "tag": "0001_curriculum",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791462162172,
+      "tag": "0002_teaching",
+      "breakpoints": true
+    }
+  ]
+}

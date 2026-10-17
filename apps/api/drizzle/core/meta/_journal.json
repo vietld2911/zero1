@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1791388159202,
+      "tag": "0000_steep_thena",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1791389962332,
+      "tag": "0001_core_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791514414171,
+      "tag": "0002_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1792252476255,
+      "tag": "0003_integrations_parents",
+      "breakpoints": true
+    }
+  ]
+}
